@@ -35,6 +35,17 @@
         </button>
         <label for="tempo-slider" class="sr-only">Tempo</label>
         <input id="tempo-slider" type="range" min="0" max="100" value="25" />
+
+        <div class="clear-control" id="clear-control">
+          <button type="button" class="clear-btn" aria-label="Clear canvas: remove all painted sounds">
+            <span class="clear-icon" aria-hidden="true"></span>
+          </button>
+          <div class="clear-confirm" hidden>
+            <span class="clear-confirm-label">Clear all?</span>
+            <button type="button" class="clear-confirm-action confirm">Confirm</button>
+            <button type="button" class="clear-confirm-action cancel">Cancel</button>
+          </div>
+        </div>
       </div>
 
       <div class="palette" role="group" aria-label="Sound brushes and tools">

@@ -24,14 +24,22 @@ const BRUSH_COLOR: Record<BrushType, string> = {
 
 // Static concentric guides behind everything else, centred on the loop
 // origin, so distance-from-centre (the loop's own timing) is legible before
-// anything moves. Kept far dimmer than any ripple or mark.
-const RING_COUNT = 6;
-const RING_INNER_COLOR: [number, number, number] = [55, 65, 95];
-const RING_OUTER_COLOR: [number, number, number] = [100, 110, 150];
+// anything moves. Kept dimmer than any ripple or mark, but bright enough
+// (RING_ALPHA_*) to actually be noticed rather than needing to be sought out.
+const RING_COUNT = 10;
+const RING_INNER_COLOR: [number, number, number] = [60, 72, 105];
+const RING_OUTER_COLOR: [number, number, number] = [130, 145, 190];
+const RING_ALPHA_INNER = 0.07;
+const RING_ALPHA_OUTER = 0.17;
 
 // A frame delta larger than this (tab backgrounded, debugger pause) is
 // clamped so a single stalled frame can't fling a ripple across the canvas.
 const MAX_FRAME_DT = 0.25;
+
+// Clear Canvas gets its own brief outward flash (distinct from the per-mark
+// erase flash) so wiping the whole composition reads as a bigger event than
+// removing one mark.
+const CLEAR_FLASH_MS = 420;
 
 function clamp01(v: number): number {
   return Math.min(1, Math.max(0, v));
@@ -76,6 +84,7 @@ export class SoundCanvas {
   private strokeLast: { nx: number; ny: number } | null = null;
 
   private eraseFlashes: EraseFlash[] = [];
+  private clearFlashUntil = 0;
 
   private paused = false;
   private lastTickTime = 0;
@@ -85,6 +94,7 @@ export class SoundCanvas {
     private paletteButtons: NodeListOf<HTMLButtonElement>,
     private tempoSlider: HTMLInputElement,
     private pauseButton: HTMLButtonElement,
+    private clearControl: HTMLElement,
   ) {
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("2D canvas context unavailable");
@@ -101,6 +111,7 @@ export class SoundCanvas {
     this.bindPalette();
     this.bindTempo();
     this.bindPause();
+    this.bindClear();
 
     requestAnimationFrame((t) => this.tick(t));
   }
@@ -377,6 +388,55 @@ export class SoundCanvas {
     });
   }
 
+  // A momentary action, not a mode: requires an explicit second confirmation
+  // click before anything is deleted, auto-reverts if left alone, and backs
+  // out on a click anywhere outside the control.
+  private bindClear(): void {
+    const btn = this.clearControl.querySelector<HTMLButtonElement>(".clear-btn");
+    const confirm = this.clearControl.querySelector<HTMLElement>(".clear-confirm");
+    const confirmBtn = this.clearControl.querySelector<HTMLButtonElement>(".clear-confirm-action.confirm");
+    const cancelBtn = this.clearControl.querySelector<HTMLButtonElement>(".clear-confirm-action.cancel");
+    if (!btn || !confirm || !confirmBtn || !cancelBtn) return;
+
+    let revertTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const showButton = () => {
+      if (revertTimer !== undefined) {
+        clearTimeout(revertTimer);
+        revertTimer = undefined;
+      }
+      confirm.hidden = true;
+      btn.hidden = false;
+    };
+
+    const showConfirm = () => {
+      btn.hidden = true;
+      confirm.hidden = false;
+      revertTimer = setTimeout(showButton, 5000);
+    };
+
+    btn.addEventListener("click", showConfirm);
+    cancelBtn.addEventListener("click", showButton);
+    confirmBtn.addEventListener("click", () => {
+      showButton();
+      this.clearCanvas();
+    });
+
+    document.addEventListener("pointerdown", (e) => {
+      if (!confirm.hidden && !this.clearControl.contains(e.target as Node)) {
+        showButton();
+      }
+    });
+  }
+
+  private clearCanvas(): void {
+    this.marks = [];
+    this.selectedMarkId = null;
+    this.loopRipple.triggered.clear();
+    for (const ripple of this.singleRipples) ripple.triggered.clear();
+    this.clearFlashUntil = performance.now() + CLEAR_FLASH_MS;
+  }
+
   // --- simulation -------------------------------------------------------------
 
   private trigger(mark: SoundMark, now: number): void {
@@ -506,6 +566,7 @@ export class SoundCanvas {
     for (const flash of this.eraseFlashes) {
       this.drawEraseFlash(flash, now);
     }
+    this.drawClearFlash(now);
   }
 
   // Stationary rings sharing the loop's own centre and reach, so the loop's
@@ -527,17 +588,39 @@ export class SoundCanvas {
       const r = Math.round(r0 + (r1 - r0) * t);
       const g = Math.round(g0 + (g1 - g0) * t);
       const b = Math.round(b0 + (b1 - b0) * t);
+      const alpha = RING_ALPHA_INNER + (RING_ALPHA_OUTER - RING_ALPHA_INNER) * t;
       ctx.beginPath();
       ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.09)`;
+      ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`;
       ctx.lineWidth = 1;
       ctx.stroke();
     }
     ctx.restore();
   }
 
+  private drawClearFlash(now: number): void {
+    const remaining = this.clearFlashUntil - now;
+    if (remaining <= 0) return;
+    const t = Math.min(1, Math.max(0, 1 - remaining / CLEAR_FLASH_MS));
+    const ctx = this.ctx2d;
+    const radius = this.maxRadiusFromCenter() * t;
+    const alpha = (1 - t) * 0.3;
+    if (alpha <= 0.01) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(this.width / 2, this.height / 2, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255, 255, 255, ${alpha.toFixed(3)})`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+  }
+
   private drawEraseFlash(flash: EraseFlash, now: number): void {
-    const t = (flash.until - now) / PULSE_MS;
+    // Clamped to 1: the flash's deadline is set with performance.now() at
+    // erase time, but this is read against the rAF timestamp, which can lag
+    // slightly behind on the very next frame -- an unclamped t briefly pushes
+    // the radius negative and throws, freezing the render loop for good.
+    const t = Math.min(1, (flash.until - now) / PULSE_MS);
     if (t <= 0) return;
     const ctx = this.ctx2d;
     const r = 6 + (1 - t) * 20;
