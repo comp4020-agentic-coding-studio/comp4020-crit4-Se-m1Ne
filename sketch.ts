@@ -3,23 +3,56 @@
 // out an independent one-shot ripple (the live-performance layer). Both are
 // driven by the same distance-from-origin -> time mapping.
 import { AudioEngine } from "./audio";
-import { percussionZone, quantizeToScale } from "./scale";
+import { quantizeToScale } from "./scale";
 import type { BrushType, Mode, Ripple, SoundMark } from "./types";
 
-const GLOW_RANGE: [number, number] = [60, 84]; // C4..C6
-const SPARK_RANGE: [number, number] = [72, 96]; // C5..C7
-const INK_RANGE: [number, number] = [36, 55]; // C2..G3
+// Each brush gets its own register, spanning roughly 2-3 octaves so
+// vertical position reads as a clearly audible pitch change -- but every
+// range is quantized through the same shared scale (see scale.ts), so the
+// six registers stay part of one harmonic world instead of six independent
+// tunings.
+const BELL_RANGE: [number, number] = [64, 96]; // middle to very high
+const CRYSTAL_RANGE: [number, number] = [71, 100]; // middle-high to high
+const SHIMMER_RANGE: [number, number] = [86, 110]; // high to very high
+const METAL_RANGE: [number, number] = [43, 72]; // low-middle to middle-high
+const DEEP_RANGE: [number, number] = [24, 48]; // very low to middle-low
+const DROP_RANGE: [number, number] = [60, 79]; // restrained -- brightness carries most of the variation
 
-const STROKE_MIN_SPACING = 18; // px between marks placed while dragging a brush
+// Distance between marks placed while dragging a brush. Short, disposable
+// sounds (Drop) tolerate dense painting; long resonant ones (Deep Synth)
+// would stack into an unlistenable wall of tails from the same gesture, so
+// they get much wider spacing.
+const STROKE_SPACING: Record<BrushType, number> = {
+  drop: 10,
+  bell: 22,
+  crystal: 26,
+  metal: 46,
+  shimmer: 52,
+  deep: 72,
+};
+
+// How long each brush's trigger glow stays lit, matched to its sound's own
+// character rather than one shared flash length.
+const BRUSH_PULSE_MS: Record<BrushType, number> = {
+  bell: 320,
+  crystal: 900,
+  drop: 160,
+  deep: 2200,
+  metal: 2000,
+  shimmer: 2600,
+};
+
 const DRAG_THRESHOLD = 6; // px of movement before a pointerdown-on-a-mark becomes a drag
 const HIT_RADIUS = 24; // px, for picking up / selecting an existing mark
-const PULSE_MS = 260;
+const ERASE_FLASH_MS = 260;
 
 const BRUSH_COLOR: Record<BrushType, string> = {
-  glow: "140, 220, 210",
-  spark: "255, 214, 120",
-  ink: "170, 120, 230",
-  grain: "255, 150, 110",
+  bell: "255, 244, 214",
+  crystal: "180, 230, 255",
+  drop: "140, 200, 230",
+  deep: "110, 110, 220",
+  metal: "175, 185, 205",
+  shimmer: "225, 195, 255",
 };
 
 // Static concentric guides behind everything else, centred on the loop
@@ -74,7 +107,17 @@ export class SoundCanvas {
 
   private lastPointerNx = 0.5;
   private lastPointerNy = 0.5;
-  private tempoSeconds = 9;
+  // Overwritten immediately by bindTempo() from the slider's own default;
+  // this is just the pre-bind fallback.
+  private tempoSeconds = 21;
+
+  // Manual one-shot ripples deliberately do NOT share the loop's tempo.
+  // The automatic loop is meant to breathe slowly through the new
+  // long-tailed sounds; a player's own clicks should stay fast and direct
+  // regardless of how slow that loop currently is, so rapid clicking still
+  // reads as rapid, expressive playing rather than being dragged down to
+  // the ambient pace.
+  private readonly singleRippleSeconds = 2.2;
 
   private width = 0;
   private height = 0;
@@ -132,11 +175,13 @@ export class SoundCanvas {
 
   private seedStarterMarks(): void {
     // A handful of pre-placed marks close to the centre, so the very first
-    // click's ripple - and the looping ripple - produce sound immediately.
+    // click's ripple - and the looping ripple - produce sound immediately,
+    // sampling across the new register spread (bright/high down to deep/low).
     this.marks.push(
-      this.makeMark(0.56, 0.42, "glow"),
-      this.makeMark(0.44, 0.47, "spark"),
-      this.makeMark(0.5, 0.62, "grain"),
+      this.makeMark(0.56, 0.38, "bell"),
+      this.makeMark(0.44, 0.44, "crystal"),
+      this.makeMark(0.5, 0.52, "drop"),
+      this.makeMark(0.47, 0.68, "deep"),
     );
   }
 
@@ -169,6 +214,10 @@ export class SoundCanvas {
 
   private loopSpeedPxPerSec(): number {
     return this.maxRadiusFromCenter() / this.tempoSeconds;
+  }
+
+  private singleRippleSpeedPxPerSec(px: number, py: number): number {
+    return this.maxRadiusFromPoint(px, py) / this.singleRippleSeconds;
   }
 
   private findMarkNear(px: number, py: number): SoundMark | undefined {
@@ -257,7 +306,7 @@ export class SoundCanvas {
 
     if (this.mode.kind === "brush" && this.strokePointerId === e.pointerId && this.strokeLast) {
       const last = this.toPixel(this.strokeLast.nx, this.strokeLast.ny);
-      if (Math.hypot(x - last.x, y - last.y) >= STROKE_MIN_SPACING) {
+      if (Math.hypot(x - last.x, y - last.y) >= STROKE_SPACING[this.mode.brush]) {
         this.marks.push(this.makeMark(nx, ny, this.mode.brush));
         this.strokeLast = { nx, ny };
       }
@@ -304,18 +353,24 @@ export class SoundCanvas {
           break;
         }
         case "1":
-          this.setMode({ kind: "brush", brush: "glow" });
+          this.setMode({ kind: "brush", brush: "bell" });
           break;
         case "2":
-          this.setMode({ kind: "brush", brush: "spark" });
+          this.setMode({ kind: "brush", brush: "crystal" });
           break;
         case "3":
-          this.setMode({ kind: "brush", brush: "ink" });
+          this.setMode({ kind: "brush", brush: "drop" });
           break;
         case "4":
-          this.setMode({ kind: "brush", brush: "grain" });
+          this.setMode({ kind: "brush", brush: "deep" });
           break;
         case "5":
+          this.setMode({ kind: "brush", brush: "metal" });
+          break;
+        case "6":
+          this.setMode({ kind: "brush", brush: "shimmer" });
+          break;
+        case "7":
           this.setMode({ kind: "erase" });
           break;
         case "Delete":
@@ -369,8 +424,14 @@ export class SoundCanvas {
   private bindTempo(): void {
     const apply = () => {
       const t = Number(this.tempoSlider.value) / 100;
-      // 16s (slow) down to 3s (fast) for one lap of the loop ripple.
-      this.tempoSeconds = 16 - t * 13;
+      // 26s (slow) down to 6s (fast) for one lap of the loop ripple. Slowed
+      // down again from the previous pass's 16-3s range: the cosmic
+      // palette's tails run several seconds long, and at the old, quicker
+      // pace the loop was retriggering marks faster than their own
+      // resonance could develop, so dense areas turned to mud instead of
+      // resonating. This range only covers the automatic loop -- manual
+      // ripples keep their own fixed, fast speed (see singleRippleSeconds).
+      this.tempoSeconds = 26 - t * 20;
     };
     apply();
     this.tempoSlider.addEventListener("input", apply);
@@ -440,19 +501,29 @@ export class SoundCanvas {
   // --- simulation -------------------------------------------------------------
 
   private trigger(mark: SoundMark, now: number): void {
-    mark.pulseUntil = now + PULSE_MS;
+    mark.pulseUntil = now + BRUSH_PULSE_MS[mark.brush];
+    // Stereo position mirrors horizontal painting position, so the sound's
+    // spatial image matches the visual one -- part of the shared "cosmic
+    // space" every brush is routed through.
+    const pan = (mark.nx * 2 - 1) * 0.6;
     switch (mark.brush) {
-      case "glow":
-        this.audio.playGlow(quantizeToScale(1 - mark.ny, GLOW_RANGE[0], GLOW_RANGE[1]));
+      case "bell":
+        this.audio.playBell(quantizeToScale(1 - mark.ny, BELL_RANGE[0], BELL_RANGE[1]), pan);
         break;
-      case "spark":
-        this.audio.playSpark(quantizeToScale(1 - mark.ny, SPARK_RANGE[0], SPARK_RANGE[1]));
+      case "crystal":
+        this.audio.playCrystal(quantizeToScale(1 - mark.ny, CRYSTAL_RANGE[0], CRYSTAL_RANGE[1]), pan);
         break;
-      case "ink":
-        this.audio.playInk(quantizeToScale(1 - mark.ny, INK_RANGE[0], INK_RANGE[1]));
+      case "drop":
+        this.audio.playDrop(quantizeToScale(1 - mark.ny, DROP_RANGE[0], DROP_RANGE[1]), mark.ny, pan);
         break;
-      case "grain":
-        this.audio.playGrain(percussionZone(mark.ny));
+      case "deep":
+        this.audio.playDeep(quantizeToScale(1 - mark.ny, DEEP_RANGE[0], DEEP_RANGE[1]), pan);
+        break;
+      case "metal":
+        this.audio.playMetal(quantizeToScale(1 - mark.ny, METAL_RANGE[0], METAL_RANGE[1]), pan);
+        break;
+      case "shimmer":
+        this.audio.playShimmer(quantizeToScale(1 - mark.ny, SHIMMER_RANGE[0], SHIMMER_RANGE[1]), pan);
         break;
       default:
         break;
@@ -469,7 +540,7 @@ export class SoundCanvas {
     // it's out of `marks`, but drop any stale trigger record too.
     this.loopRipple.triggered.delete(hit.id);
     for (const ripple of this.singleRipples) ripple.triggered.delete(hit.id);
-    this.eraseFlashes.push({ x: p.x, y: p.y, until: performance.now() + PULSE_MS });
+    this.eraseFlashes.push({ x: p.x, y: p.y, until: performance.now() + ERASE_FLASH_MS });
   }
 
   private checkCollisions(ripple: Ripple, from: number, to: number, now: number): void {
@@ -512,7 +583,7 @@ export class SoundCanvas {
   }
 
   private updateSingleRipple(ripple: Ripple, dt: number, now: number): boolean {
-    const speed = this.loopSpeedPxPerSec();
+    const speed = this.singleRippleSpeedPxPerSec(ripple.originPxX, ripple.originPxY);
     const maxRadius = this.maxRadiusFromPoint(ripple.originPxX, ripple.originPxY);
     const radius = Math.min(ripple.radius + dt * speed, maxRadius);
     this.checkCollisions(ripple, ripple.prevRadius, radius, now);
@@ -620,7 +691,7 @@ export class SoundCanvas {
     // erase time, but this is read against the rAF timestamp, which can lag
     // slightly behind on the very next frame -- an unclamped t briefly pushes
     // the radius negative and throws, freezing the render loop for good.
-    const t = Math.min(1, (flash.until - now) / PULSE_MS);
+    const t = Math.min(1, (flash.until - now) / ERASE_FLASH_MS);
     if (t <= 0) return;
     const ctx = this.ctx2d;
     const r = 6 + (1 - t) * 20;
@@ -664,7 +735,8 @@ export class SoundCanvas {
   private drawMark(mark: SoundMark, now: number): void {
     const ctx = this.ctx2d;
     const { x, y } = this.toPixel(mark.nx, mark.ny);
-    const pulse = mark.pulseUntil > now ? (mark.pulseUntil - now) / PULSE_MS : 0;
+    const pulseDuration = BRUSH_PULSE_MS[mark.brush];
+    const pulse = mark.pulseUntil > now ? (mark.pulseUntil - now) / pulseDuration : 0;
     const selected = mark.id === this.selectedMarkId;
     const color = BRUSH_COLOR[mark.brush];
 
@@ -678,10 +750,49 @@ export class SoundCanvas {
     }
 
     switch (mark.brush) {
-      case "glow": {
-        const r = 10 + pulse * 10;
+      case "bell": {
+        // A small bright point with a brief, sharp flash on trigger.
+        const r = 4.5 + pulse * 5;
+        ctx.shadowColor = `rgba(${color}, 0.95)`;
+        ctx.shadowBlur = 6 + pulse * 14;
+        ctx.fillStyle = `rgba(${color}, 0.95)`;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+      case "crystal": {
+        // A faceted outline; a second, offset outline appears while
+        // pulsing for a subtle "refracted" doubling.
+        const r = 9;
+        this.drawFacetedOutline(x, y, r, `rgba(${color}, ${0.55 + pulse * 0.25})`);
+        if (pulse > 0) {
+          this.drawFacetedOutline(x + pulse * 2.5, y - pulse * 2, r * 1.15, `rgba(${color}, ${pulse * 0.35})`);
+        }
+        break;
+      }
+      case "drop": {
+        // Tiny and delicate; a quick expanding ring stands in for the
+        // percussive "tap" without the visual weight of a hit.
+        const r = 3 + pulse * 1.5;
+        ctx.fillStyle = `rgba(${color}, 0.85)`;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+        if (pulse > 0) {
+          ctx.beginPath();
+          ctx.arc(x, y, r + (1 - pulse) * 10, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(${color}, ${pulse * 0.4})`;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+        break;
+      }
+      case "deep": {
+        // Large and soft, glowing slowly rather than flashing.
+        const r = 16 + pulse * 14;
         const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-        grad.addColorStop(0, `rgba(${color}, ${0.9})`);
+        grad.addColorStop(0, `rgba(${color}, ${0.55 + pulse * 0.3})`);
         grad.addColorStop(1, `rgba(${color}, 0)`);
         ctx.fillStyle = grad;
         ctx.beginPath();
@@ -689,44 +800,33 @@ export class SoundCanvas {
         ctx.fill();
         break;
       }
-      case "spark": {
-        const r = 5 + pulse * 7;
-        ctx.shadowColor = `rgba(${color}, 0.9)`;
-        ctx.shadowBlur = 8 + pulse * 10;
-        ctx.fillStyle = `rgba(${color}, ${0.95})`;
-        ctx.beginPath();
-        ctx.moveTo(x, y - r);
-        ctx.lineTo(x + r * 0.35, y - r * 0.35);
-        ctx.lineTo(x + r, y);
-        ctx.lineTo(x + r * 0.35, y + r * 0.35);
-        ctx.lineTo(x, y + r);
-        ctx.lineTo(x - r * 0.35, y + r * 0.35);
-        ctx.lineTo(x - r, y);
-        ctx.lineTo(x - r * 0.35, y - r * 0.35);
-        ctx.closePath();
-        ctx.fill();
-        break;
-      }
-      case "ink": {
-        const r = 11 + pulse * 5;
-        ctx.fillStyle = `rgba(${color}, ${0.75 + pulse * 0.2})`;
+      case "metal": {
+        // A ring rather than a filled shape, widening slowly while it rings.
+        const r = 10 + (1 - pulse) * 6 + pulse * 8;
         ctx.beginPath();
         ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = `rgba(${color}, 0.9)`;
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = `rgba(${color}, ${0.5 + pulse * 0.3})`;
+        ctx.lineWidth = 2.2;
         ctx.stroke();
         break;
       }
-      case "grain": {
+      case "shimmer": {
+        // Faint scattered particles around a soft halo -- airy, not solid.
+        if (pulse > 0) {
+          ctx.beginPath();
+          ctx.arc(x, y, 14 + (1 - pulse) * 10, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(${color}, ${pulse * 0.22})`;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
         const specks = 5;
         for (let i = 0; i < specks; i++) {
           const a = mark.seed * Math.PI * 2 + (i / specks) * Math.PI * 2;
-          const dist = 4 + ((mark.seed * (i + 1) * 37) % 6);
+          const dist = 5 + ((mark.seed * (i + 1) * 37) % 7);
           const sx = x + Math.cos(a) * dist;
           const sy = y + Math.sin(a) * dist;
-          const r = 1.5 + pulse * 2;
-          ctx.fillStyle = `rgba(${color}, ${0.85})`;
+          const r = 1.2 + pulse * 1.4;
+          ctx.fillStyle = `rgba(${color}, ${0.6 + pulse * 0.25})`;
           ctx.beginPath();
           ctx.arc(sx, sy, r, 0, Math.PI * 2);
           ctx.fill();
@@ -737,5 +837,22 @@ export class SoundCanvas {
         break;
     }
     ctx.restore();
+  }
+
+  private drawFacetedOutline(x: number, y: number, r: number, style: string): void {
+    const ctx = this.ctx2d;
+    const sides = 6;
+    ctx.beginPath();
+    for (let i = 0; i < sides; i++) {
+      const a = (i / sides) * Math.PI * 2 - Math.PI / 2;
+      const px = x + Math.cos(a) * r;
+      const py = y + Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = style;
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
   }
 }

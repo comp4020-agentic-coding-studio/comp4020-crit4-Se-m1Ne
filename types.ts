@@ -1,7 +1,7 @@
 // Shared shapes for the sound canvas. Kept flat at repo root (not in a
 // subdirectory) because tsconfig.json only typechecks top-level *.ts files.
 
-export type BrushType = "glow" | "spark" | "ink" | "grain";
+export type BrushType = "bell" | "crystal" | "drop" | "deep" | "metal" | "shimmer";
 
 export interface SoundMark {
   id: number;
@@ -9,7 +9,7 @@ export interface SoundMark {
   nx: number;
   ny: number;
   brush: BrushType;
-  /** A stable per-mark random value, used for deterministic grain texture. */
+  /** A stable per-mark random value, used for deterministic shimmer/drop texture. */
   seed: number;
   /** performance.now() timestamp the trigger glow should fade out by; 0 = idle. */
   pulseUntil: number;

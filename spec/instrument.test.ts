@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
-import { midiToFreq, percussionZone, quantizeToScale } from "../scale";
+import { midiToFreq, quantizeToScale } from "../scale";
 
 // Mechanically-checkable slices of this week's spec: the page must offer a
 // full-canvas ripple surface, a small set of visually distinct sound
@@ -24,10 +24,10 @@ describe("sound canvas page", () => {
     expect(doc?.querySelectorAll("canvas").length).toBe(1);
   });
 
-  it("offers exactly four visually distinct sound brushes", () => {
+  it("offers exactly six visually distinct sound brushes", () => {
     const buttons = doc?.querySelectorAll<HTMLButtonElement>("[data-brush]") ?? [];
     const brushes = new Set(Array.from(buttons).map((b) => b.dataset.brush));
-    expect(brushes).toEqual(new Set(["glow", "spark", "ink", "grain"]));
+    expect(brushes).toEqual(new Set(["bell", "crystal", "drop", "deep", "metal", "shimmer"]));
     // Each brush must carry its own class, so a look at styles.css shows a
     // distinct visual per brush rather than one shared "instrument" look.
     for (const btn of buttons) {
@@ -78,12 +78,20 @@ describe("pitch quantization", () => {
   it("converts A4 (midi 69) to 440Hz", () => {
     expect(midiToFreq(69)).toBeCloseTo(440, 5);
   });
-});
 
-describe("percussion zones", () => {
-  it("splits the canvas into three vertical character bands", () => {
-    expect(percussionZone(0)).toBe("hi");
-    expect(percussionZone(0.5)).toBe("mid");
-    expect(percussionZone(0.99)).toBe("low");
+  it("keeps different brush registers on the same shared scale", () => {
+    // Two brushes with very different, non-overlapping ranges should still
+    // only ever produce notes from the same pentatonic world -- this is
+    // the "hidden harmonic quantization" that keeps six differently
+    // registered brushes sounding like one instrument rather than six
+    // independently-tuned ones.
+    const isOnSharedScale = (midi: number) => {
+      const step = ((midi - 60) % 12) + 12 * 2; // shift positive, then re-mod below
+      return [0, 2, 4, 7, 9].includes(step % 12);
+    };
+    for (let i = 0; i <= 10; i++) {
+      expect(isOnSharedScale(quantizeToScale(i / 10, 24, 48))).toBe(true); // Deep Synth register
+      expect(isOnSharedScale(quantizeToScale(i / 10, 86, 110))).toBe(true); // Shimmer register
+    }
   });
 });

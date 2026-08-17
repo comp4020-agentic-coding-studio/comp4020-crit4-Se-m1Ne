@@ -11,12 +11,15 @@ canvas and a looping ripple, expanding outward from the centre, plays whatever
 it touches --- distance from the centre is time in the loop, so the ripple
 itself is the sequencer. Clicking or tapping anywhere also sends out an
 independent one-shot ripple from that exact point, for live playing on top of
-the loop. Four sound brushes (Glow, Spark, Ink, Grain), each with its own
-Web-Audio synthesis and its own visual shape, cover melodic, bell, bass, and
-percussive character; vertical position sets pitch (quantised to a pentatonic
-scale so nothing plays a "wrong" note) or percussion register. There's no
-tutorial, start button, or score --- the first click both unlocks audio and
-triggers the pre-placed starter marks, so sound happens before any UI is read.
+the loop. Six sound brushes (Bell, Crystal, Drop, Deep Synth, Metal, Shimmer),
+each with its own Web-Audio synthesis and its own visual shape, form one
+coherent cosmic palette --- short bright textures, resonant metallic and
+crystalline tones, and a slow, deep low end all sharing the same hidden
+harmonic world; vertical position sets pitch (quantised to a shared pentatonic
+scale, with each brush given its own register, so nothing plays a "wrong"
+note) or, for Drop, brightness. There's no tutorial, start button, or score
+--- the first click both unlocks audio and triggers the pre-placed starter
+marks, so sound happens before any UI is read.
 
 ## The moments that mattered
 
@@ -141,6 +144,57 @@ would have silently frozen the entire instrument on an unlucky frame. Both
 were caught by console-error monitoring during Playwright verification
 rather than by any visual check, which is the reason that verification step
 stayed in the process even for a change that looked purely cosmetic.
+
+## A sound redesign: what listening caught that the checks couldn't
+
+The original palette (Glow, Spark, Ink, Grain) was built from fairly
+conventional pitched-synth and percussion sounds --- a bell-ish tone, a
+plucked tone, a bass tone, a percussive hit. It passed every check
+(`pnpm check` green, all brush/pitch tests passing) and looked correct on
+paper: four distinct brushes, a shared pentatonic scale, pitch mapped to
+Y-position. Actually listening to it revealed something the tests had no way
+to catch: the four sounds felt like separate instruments taking turns rather
+than one instrument, and a densely painted area sounded like scattered
+individual notes rather than a texture, because each sound was short,
+percussive, and rang out in isolation. Part of the problem was structural,
+not just timbral --- the ripple plays radially outward from the centre, not
+left-to-right, so the usual melodic expectations of a piano-roll style
+sequence (a phrase rising and falling in a fixed order) don't really apply
+here, and conventional pitched-synth voices were fighting a playback model
+that was never going to read as a tune.
+
+The fix was not to remove drawing or pitch --- both stayed, because "the
+ripple plays what it touches" and "Y-position controls pitch" are the
+instrument's actual identity. Instead, the whole sound palette was replaced
+with six voices (Bell, Crystal, Drop, Deep Synth, Metal, Shimmer) designed
+together as one cosmic/resonant sound world rather than six independent
+instruments: every brush quantises through the same shared pentatonic anchor
+even though each has its own register, so a low Deep Synth drone and a high
+Shimmer texture still can't produce a clashing note; the old drum-like sounds
+(kick/snare-style hits) were removed entirely, since a drum kit was fighting
+the "cosmic" brief as much as the melodic ones were; and the Y-pitch range
+per brush was deliberately widened to two-to-three audible octaves so
+pitch still reads as expressive rather than decorative. Short and long
+sounds were then deliberately mixed and made to overlap --- Drop is
+short, Bell and Crystal are medium, Metal and Shimmer are long, Deep Synth
+is very long --- so a dense painted area rings and blends instead of
+chattering, and a shared, subtle reverb send was added across all six
+voices (plus a near-inaudible always-on ambient drone) so they read as six
+materials in one space rather than six unrelated samples glued together.
+The central loop's default speed was also slowed down, because a loop tuned
+for short, percussive sounds was retriggering marks faster than the new
+longer-decaying sounds could resonate --- manual one-shot ripples were kept
+at their original fast, unquantised speed, since those are for live
+playing, not the ambient background pulse.
+
+None of this --- whether six sounds feel like one instrument, whether Metal
+reads as "resonant" rather than "industrial," whether the ambient layer is
+noticeable at all --- is something `pnpm check` or the spec tests can judge;
+they only confirm the brush set exists, the scale never goes out of range,
+and nothing throws. This redesign is an example of a change that had to be
+driven by actually listening to the built instrument, not by making the
+automated checks pass, and the checks staying green throughout is why they
+were treated as necessary but not sufficient here.
 
 ## Before you ship
 
