@@ -6,7 +6,7 @@ is the requirement; this file is a map to how the work got there.
 
 ## What I built
 
-**Sound Canvas**: a full-screen instrument where you paint marks onto a dark
+**DREAMWASH**: a full-screen instrument where you paint marks onto a dark
 canvas and a looping ripple, expanding outward from the centre, plays whatever
 it touches --- distance from the centre is time in the loop, so the ripple
 itself is the sequencer. Clicking or tapping anywhere also sends out an
@@ -328,6 +328,21 @@ palette and transport controls correctly excluded from the tab order
 beforehand (`inert`, removed on wake), and every pre-existing interaction ---
 brush painting, hold-to-resonate, eraser, Clear Canvas, pause/resume, tempo
 --- still behaves exactly as before once the instrument is awake.
+
+## A naming refinement: Sound Canvas becomes DREAMWASH
+
+The working title "Sound Canvas" described the mechanism clearly --- you paint
+onto a canvas, it makes sound --- but felt too functional for the direction
+the sound design had actually settled into. It was renamed to **DREAMWASH**,
+which better reflects the dream-pop sound direction, the washed-out
+reverb/delay texture the palette leans on, the dreamy visual atmosphere of the
+canvas itself, the ripple/wave behaviour the whole instrument is built around,
+and the soft blending of sound and light the opening reveal is meant to feel
+like. The opening hint was renamed to match: "touch to wake" became "touch to
+resonate", since "resonate" ties the first gesture to sound and resonance
+rather than just switching something on, and reads as more romantic and
+ethereal than "wake" did. Nothing about the opening's behaviour, layout, or
+animation changed --- only the two pieces of visible text naming it.
 
 ## Before you ship
 
