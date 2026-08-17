@@ -259,8 +259,13 @@ export class AudioEngine {
   // rumble. No melody, no rhythm, no dramatic movement -- gain low enough
   // that it should be felt more than consciously heard.
   private startAmbient(ctx: AudioContext, bus: GainNode): void {
+    // Ramped in over a couple of seconds from first wake rather than
+    // snapping straight to its resting gain -- "musical air" gradually
+    // arriving, not a layer switching on.
+    const now = ctx.currentTime;
     const droneGain = ctx.createGain();
-    droneGain.gain.value = 0.02;
+    droneGain.gain.setValueAtTime(0.0001, now);
+    droneGain.gain.linearRampToValueAtTime(0.02, now + 2.2);
 
     const filter = ctx.createBiquadFilter();
     filter.type = "lowpass";
@@ -295,7 +300,8 @@ export class AudioEngine {
     airFilter.type = "highpass";
     airFilter.frequency.value = 5200;
     const airGain = ctx.createGain();
-    airGain.gain.value = 0.006;
+    airGain.gain.setValueAtTime(0.0001, now);
+    airGain.gain.linearRampToValueAtTime(0.006, now + 2.6);
     const airPanner = ctx.createStereoPanner();
     const panLfo = ctx.createOscillator();
     panLfo.type = "sine";

@@ -384,3 +384,94 @@ main {
     width: 5rem;
   }
 }
+
+/*
+ * The wake cover shares the canvas's own background gradient and ring
+ * colours (see RING_INNER_COLOR/RING_OUTER_COLOR and the radial background
+ * fill in sketch.ts) so waking reads as the same space opening up, not a
+ * different screen replacing it.
+ */
+.wake-cover {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    repeating-radial-gradient(
+      circle at 50% 50%,
+      rgb(130 145 190 / 5%) 0,
+      rgb(130 145 190 / 5%) 1px,
+      transparent 1px,
+      transparent 6.5%
+    ),
+    radial-gradient(circle at 50% 50%, #0e0e1e 0%, #050508 80%);
+  touch-action: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  cursor: pointer;
+}
+
+.wake-cover[hidden] {
+  display: none;
+}
+
+.wake-cover.wake-fade {
+  transition: opacity 0.2s ease;
+  opacity: 0;
+}
+
+.wake-cover-text {
+  text-align: center;
+  color: rgb(230 230 245 / 90%);
+}
+
+.wake-cover-title {
+  margin: 0 0 0.6rem;
+  font-size: clamp(1.3rem, 4vw, 1.8rem);
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  opacity: 0.9;
+  transition:
+    opacity 0.5s ease,
+    filter 0.5s ease,
+    transform 0.5s ease;
+}
+
+.wake-cover-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  letter-spacing: 0.2em;
+  text-transform: lowercase;
+  color: rgb(200 210 235 / 55%);
+  transition:
+    opacity 0.35s ease,
+    filter 0.35s ease,
+    transform 0.35s ease;
+}
+
+.wake-cover.waking .wake-cover-hint {
+  opacity: 0;
+  filter: blur(4px);
+  transform: translateY(-0.3rem);
+}
+
+.wake-cover.waking .wake-cover-title {
+  opacity: 0;
+  filter: blur(6px);
+  transform: scale(1.04);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wake-cover-title,
+  .wake-cover-hint {
+    transition-duration: 0.15s;
+  }
+
+  .wake-cover.waking .wake-cover-title,
+  .wake-cover.waking .wake-cover-hint {
+    filter: none;
+    transform: none;
+  }
+}

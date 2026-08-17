@@ -95,6 +95,12 @@ const MAX_FRAME_DT = 0.25;
 // removing one mark.
 const CLEAR_FLASH_MS = 420;
 
+// How long the wake cover takes to fully open once touched -- intentional
+// but brief, not a cinematic intro. The reduced-motion path is much shorter
+// still, since it's a plain fade rather than a travelling reveal.
+const WAKE_DURATION_MS = 950;
+const REDUCED_WAKE_DURATION_MS = 220;
+
 function clamp01(v: number): number {
   return Math.min(1, Math.max(0, v));
 }
@@ -164,12 +170,23 @@ export class SoundCanvas {
   private paused = false;
   private lastTickTime = 0;
 
+  // Gates only the automatic central loop (see updateLoopRipple) -- distinct
+  // from `paused`, which is a user-facing toggle. Before the first wake
+  // gesture the loop stays frozen at radius 0 rather than silently sweeping
+  // behind the cover, so nothing appears to be playing while it can't yet
+  // be heard.
+  private awake = false;
+  private wakeFired = false;
+  private wakeAnim: { x: number; y: number; startTime: number; maxRadius: number } | null = null;
+  private readonly reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
   constructor(
     private canvas: HTMLCanvasElement,
     private paletteButtons: NodeListOf<HTMLButtonElement>,
     private tempoSlider: HTMLInputElement,
     private pauseButton: HTMLButtonElement,
     private clearControl: HTMLElement,
+    private wakeCover: HTMLElement,
   ) {
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("2D canvas context unavailable");
@@ -187,6 +204,7 @@ export class SoundCanvas {
     this.bindTempo();
     this.bindPause();
     this.bindClear();
+    this.bindWakeCover();
 
     requestAnimationFrame((t) => this.tick(t));
   }
@@ -413,8 +431,17 @@ export class SoundCanvas {
     window.addEventListener("keydown", (e) => {
       if (e.repeat) return;
       switch (e.key) {
+        case "Enter":
         case " ": {
           e.preventDefault();
+          // Before the wake gesture, Enter/Space is the keyboard equivalent
+          // of touching the cover -- it wakes from the canvas centre rather
+          // than doing anything ripple-specific.
+          if (!this.awake) {
+            this.wake(this.width / 2, this.height / 2);
+            break;
+          }
+          if (e.key !== " ") break;
           this.audio.unlock();
           const p = this.toPixel(this.lastPointerNx, this.lastPointerNy);
           this.spawnSingleRipple(p.x, p.y);
@@ -572,6 +599,70 @@ export class SoundCanvas {
     this.clearFlashUntil = performance.now() + CLEAR_FLASH_MS;
   }
 
+  // --- wake cover -------------------------------------------------------------
+
+  private bindWakeCover(): void {
+    const cover = this.wakeCover;
+    cover.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      const rect = cover.getBoundingClientRect();
+      this.wake(e.clientX - rect.left, e.clientY - rect.top);
+    });
+    cover.addEventListener("contextmenu", (e) => e.preventDefault());
+  }
+
+  // The player's first touch/click both unlocks audio and spawns a genuine
+  // one-shot ripple from that exact point through the normal spawnSingleRipple
+  // pipeline -- the same ripple that visually opens the cover (see
+  // updateWakeAnim) also plays through the real collision/audio path, so the
+  // first sound heard is actual playing, not a sound effect glued onto a UI
+  // transition.
+  private wake(x: number, y: number): void {
+    if (this.wakeFired) return;
+    this.wakeFired = true;
+
+    this.audio.unlock();
+    this.spawnSingleRipple(x, y);
+
+    this.wakeCover.style.pointerEvents = "none";
+    document.querySelector(".transport")?.removeAttribute("inert");
+    document.querySelector(".palette")?.removeAttribute("inert");
+
+    if (this.reducedMotion) {
+      this.wakeCover.classList.add("waking", "wake-fade");
+      window.setTimeout(() => this.finishWake(), REDUCED_WAKE_DURATION_MS);
+      return;
+    }
+
+    this.wakeCover.classList.add("waking");
+    this.wakeAnim = { x, y, startTime: performance.now(), maxRadius: this.maxRadiusFromPoint(x, y) };
+  }
+
+  // Grows a circular hole in the cover from the wake point outward, on its
+  // own short clock rather than the spawned ripple's actual radius -- the
+  // ripple itself keeps growing at its normal, slower, tuned-for-play speed
+  // (see singleRippleSeconds) so it still reads as a real ripple once
+  // visible, but the cover needs to finish opening in about a second
+  // regardless of where the canvas was touched.
+  private updateWakeAnim(now: number): void {
+    const anim = this.wakeAnim;
+    if (!anim) return;
+    const t = Math.min(1, (now - anim.startTime) / WAKE_DURATION_MS);
+    const eased = 1 - (1 - t) * (1 - t);
+    const radius = eased * anim.maxRadius * 1.05;
+    const feather = Math.max(40, anim.maxRadius * 0.12);
+    const mask = `radial-gradient(circle at ${anim.x}px ${anim.y}px, transparent ${radius}px, black ${radius + feather}px)`;
+    this.wakeCover.style.setProperty("mask-image", mask);
+    this.wakeCover.style.setProperty("-webkit-mask-image", mask);
+    if (t >= 1) this.finishWake();
+  }
+
+  private finishWake(): void {
+    this.awake = true;
+    this.wakeAnim = null;
+    this.wakeCover.hidden = true;
+  }
+
   // --- simulation -------------------------------------------------------------
 
   private trigger(mark: SoundMark, now: number): void {
@@ -645,7 +736,7 @@ export class SoundCanvas {
   // new speed "would have" put it since the loop started. This is also what
   // makes pause a matter of skipping the growth step for one ripple only.
   private updateLoopRipple(dt: number, now: number): void {
-    if (this.paused) return;
+    if (this.paused || !this.awake) return;
     const speed = this.loopSpeedPxPerSec();
     const maxRadius = this.maxRadiusFromCenter();
     const radius = this.loopRipple.radius + dt * speed;
@@ -679,6 +770,7 @@ export class SoundCanvas {
     const dt = this.lastTickTime === 0 ? 0 : Math.min(MAX_FRAME_DT, Math.max(0, (now - this.lastTickTime) / 1000));
     this.lastTickTime = now;
 
+    this.updateWakeAnim(now);
     // Single ripples keep running even while the automatic loop is paused --
     // pause silences the composition, not the instrument.
     this.updateLoopRipple(dt, now);

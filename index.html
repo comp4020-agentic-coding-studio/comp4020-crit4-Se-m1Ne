@@ -23,7 +23,7 @@
         aria-label="Sound canvas. Tap or click anywhere to send out a ripple of sound."
       ></canvas>
 
-      <div class="transport" role="group" aria-label="Transport">
+      <div class="transport" role="group" aria-label="Transport" inert>
         <button
           type="button"
           id="pause-btn"
@@ -48,7 +48,7 @@
         </div>
       </div>
 
-      <div class="palette" role="group" aria-label="Sound brushes and tools">
+      <div class="palette" role="group" aria-label="Sound brushes and tools" inert>
         <button
           type="button"
           class="brush-btn brush-bell"
@@ -130,6 +130,19 @@
         >
           <span class="brush-icon" aria-hidden="true"></span>
         </button>
+      </div>
+
+      <div
+        id="wake-cover"
+        class="wake-cover"
+        role="button"
+        tabindex="0"
+        aria-label="Touch to wake the instrument"
+      >
+        <div class="wake-cover-text">
+          <p class="wake-cover-title">Sound Canvas</p>
+          <p class="wake-cover-hint">touch to wake</p>
+        </div>
       </div>
     </main>
     <script type="module" src="./main.ts"></script>

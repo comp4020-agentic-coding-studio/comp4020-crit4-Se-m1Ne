@@ -275,6 +275,60 @@ listening correcting something automated tests cannot judge; the redesign
 is deliberately not treated as finished until it has actually been listened
 to on the built page.
 
+## A wake cover: turning a browser constraint into part of the instrument
+
+Browser autoplay restrictions mean an `AudioContext` cannot start making sound
+until a real user gesture unlocks it. Without a deliberate opening, that shows
+up as a real usability problem: the automatic central loop was starting
+immediately on page load, so the canvas *looked* like it was already playing
+--- the ripple visibly sweeping outward --- while the `AudioContext` sat
+silently suspended underneath, producing no sound at all until the first
+click. Rather than trying to route around that restriction (which isn't
+possible) or hiding it behind a conventional "click to enable audio" prompt
+(which would have reintroduced the onboarding chrome the brief explicitly
+rules out), the required first gesture was turned into the opening of the
+instrument itself.
+
+A minimal full-screen cover now sits in front of the canvas on load: the same
+dark background gradient and concentric rings as the canvas underneath, just
+the title and a small "touch to wake" hint, no button, no instructions. The
+player's first click or tap does five things in order --- unlock the
+`AudioContext`, spawn a real one-shot ripple from that exact point (through
+the same `spawnSingleRipple` used by every later click, not a special-cased
+"intro" ripple), open a circular hole in the cover that grows outward from
+that point over about a second, fade the always-on ambient drone and air
+layer in gradually rather than snapping them to their resting gain, and only
+then start the automatic central loop, which stays frozen at radius zero
+until that wake completes. Concretely: a new `awake` flag gates only
+`updateLoopRipple`'s existing guard (`if (this.paused || !this.awake)
+return`) --- distinct from the user-facing `paused` toggle --- and the cover's
+reveal is a JS-driven `mask-image: radial-gradient(...)` recomputed every
+frame from the click coordinates, chosen over a CSS transition because
+animating a mask radius smoothly across browsers would otherwise need
+`@property` custom-property registration. Because the reveal reuses the
+ordinary ripple/collision pipeline, a starter mark near the touch point plays
+normally mid-reveal, exactly as it would from any later click --- the first
+sound is real playing, not a sound effect glued onto a screen transition.
+
+Keyboard and reduced-motion users are handled without a second implementation
+path grafted on: the cover is a `role="button"` `div` and the existing global
+Space handler already used to spawn a ripple from the last known pointer
+position, so adding an `Enter`/`Space`-before-wake branch that wakes from the
+canvas centre reused that listener rather than adding a new one; a
+`prefers-reduced-motion` check taken once on construction swaps the
+mask-growth animation for a plain, much shorter opacity fade, still gated by
+the same `wake()` entry point so audio unlocks identically either way.
+Verified against a Playwright smoke script (off-repo, per `CLAUDE.md`): the
+mask consistently anchors to the actual click/tap coordinates rather than the
+canvas centre, rapid re-clicking during the reveal cannot start a second wake
+(a single `wakeFired` boolean set synchronously on the first call is enough,
+since JS's single-threaded event dispatch means no two `pointerdown` handlers
+can race each other), Tab-then-Enter reaches and wakes the cover with the
+palette and transport controls correctly excluded from the tab order
+beforehand (`inert`, removed on wake), and every pre-existing interaction ---
+brush painting, hold-to-resonate, eraser, Clear Canvas, pause/resume, tempo
+--- still behaves exactly as before once the instrument is awake.
+
 ## Before you ship
 
 `pnpm check:evidence` verifies your citations resolve to real commits, that
