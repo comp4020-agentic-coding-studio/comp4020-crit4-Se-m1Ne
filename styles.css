@@ -433,10 +433,6 @@ main {
   font-weight: 400;
   letter-spacing: 0.12em;
   opacity: 0.9;
-  transition:
-    opacity 0.5s ease,
-    filter 0.5s ease,
-    transform 0.5s ease;
 }
 
 .wake-cover-hint {
@@ -445,33 +441,37 @@ main {
   letter-spacing: 0.2em;
   text-transform: lowercase;
   color: rgb(200 210 235 / 55%);
-  transition:
-    opacity 0.35s ease,
-    filter 0.35s ease,
-    transform 0.35s ease;
 }
 
-.wake-cover.waking .wake-cover-hint {
+/*
+ * Each letter (title) / word (hint) is wrapped in one of these at
+ * construction time (see splitIntoDissolveUnits in sketch.ts) so the wake
+ * ripple can dissolve the text progressively, unit by unit, as its
+ * expanding radius reaches each one -- rather than the whole title fading
+ * uniformly on a fixed clock. No transition here on purpose: sketch.ts sets
+ * opacity/filter/transform on these every animation frame, tightly locked
+ * to the ripple's current radius, and a CSS transition would smooth (and so
+ * visibly lag) those per-frame updates.
+ */
+.wc-dissolve-unit {
+  display: inline-block;
+}
+
+/*
+ * A single travelling ring, positioned and sized every frame from the same
+ * wake x/y/radius that drives the cover's mask reveal (see updateWakeAnim),
+ * so the same wave that opens the cover visibly washes across the title as
+ * it passes -- rendered as a sibling of #wake-cover, not a child, so it
+ * isn't clipped by the cover's own mask-image at exactly the radius where
+ * it needs to be visible.
+ */
+.wake-cover-wave {
+  position: fixed;
+  z-index: 6;
+  border-radius: 50%;
+  border: 1.5px solid rgb(150 190 255 / 55%);
+  box-shadow: 0 0 18px 2px rgb(120 170 255 / 35%);
   opacity: 0;
-  filter: blur(4px);
-  transform: translateY(-0.3rem);
-}
-
-.wake-cover.waking .wake-cover-title {
-  opacity: 0;
-  filter: blur(6px);
-  transform: scale(1.04);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .wake-cover-title,
-  .wake-cover-hint {
-    transition-duration: 0.15s;
-  }
-
-  .wake-cover.waking .wake-cover-title,
-  .wake-cover.waking .wake-cover-hint {
-    filter: none;
-    transform: none;
-  }
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }

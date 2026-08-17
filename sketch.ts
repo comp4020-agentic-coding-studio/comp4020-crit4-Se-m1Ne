@@ -101,6 +101,35 @@ const CLEAR_FLASH_MS = 420;
 const WAKE_DURATION_MS = 950;
 const REDUCED_WAKE_DURATION_MS = 220;
 
+// Text-dissolve tuning for the wake-cover title/hint (see
+// splitIntoDissolveUnits / updateTextDissolve): the px distance over which a
+// unit ramps from fully visible to fully dissolved as the wake ripple's
+// radius passes it, how many px ahead of the ripple's exact edge that ramp
+// starts (a positive lead makes it feel driven by the approaching wave
+// rather than only its trailing edge), and how strong the blur/push/glow
+// peak mid-dissolve. The hint gets a shorter lead-in and a narrower band so
+// it dissolves a little quicker and more lightly than the title, which gets
+// a wider band and a faint glow so it lingers a fraction longer.
+const TITLE_DISSOLVE_BAND = 110;
+const TITLE_DISSOLVE_LEAD = 0;
+const TITLE_DISSOLVE_BLUR = 7;
+const TITLE_DISSOLVE_PUSH = 3;
+const HINT_DISSOLVE_BAND = 70;
+const HINT_DISSOLVE_LEAD = 30;
+const HINT_DISSOLVE_BLUR = 5;
+const HINT_DISSOLVE_PUSH = 2;
+
+interface DissolveUnit {
+  el: HTMLElement;
+  cx: number;
+  cy: number;
+  band: number;
+  lead: number;
+  blur: number;
+  push: number;
+  glow: boolean;
+}
+
 function clamp01(v: number): number {
   return Math.min(1, Math.max(0, v));
 }
@@ -179,6 +208,14 @@ export class SoundCanvas {
   private wakeFired = false;
   private wakeAnim: { x: number; y: number; startTime: number; maxRadius: number } | null = null;
   private readonly reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // Populated once at construction (see splitIntoDissolveUnits) and measured
+  // at the moment of wake (see prepareDissolveSpans) -- layout is static in
+  // between, so a one-time position snapshot per wake is enough.
+  private titleUnits: HTMLElement[] = [];
+  private hintUnits: HTMLElement[] = [];
+  private dissolveSpans: DissolveUnit[] = [];
+  private waveEl: HTMLElement | null = null;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -603,12 +640,83 @@ export class SoundCanvas {
 
   private bindWakeCover(): void {
     const cover = this.wakeCover;
+
+    const titleEl = cover.querySelector<HTMLElement>(".wake-cover-title");
+    const hintEl = cover.querySelector<HTMLElement>(".wake-cover-hint");
+    if (titleEl) this.titleUnits = this.splitIntoDissolveUnits(titleEl, "letter");
+    if (hintEl) this.hintUnits = this.splitIntoDissolveUnits(hintEl, "word");
+    this.waveEl = document.querySelector<HTMLElement>(".wake-cover-wave");
+
     cover.addEventListener("pointerdown", (e) => {
       e.preventDefault();
       const rect = cover.getBoundingClientRect();
       this.wake(e.clientX - rect.left, e.clientY - rect.top);
     });
     cover.addEventListener("contextmenu", (e) => e.preventDefault());
+  }
+
+  // Rewrites an element's text into one <span class="wc-dissolve-unit"> per
+  // letter or per word, preserving the original characters (and, for words,
+  // the whitespace between them) exactly -- only called once at construction,
+  // before the cover has been touched, so it can't affect the pre-wake
+  // reading experience: every unit starts with no inline style at all, i.e.
+  // identical to plain text.
+  private splitIntoDissolveUnits(el: HTMLElement, granularity: "letter" | "word"): HTMLElement[] {
+    const text = el.textContent ?? "";
+    el.textContent = "";
+    const units: HTMLElement[] = [];
+
+    const addUnit = (chars: string) => {
+      const span = document.createElement("span");
+      span.className = "wc-dissolve-unit";
+      span.textContent = chars;
+      el.appendChild(span);
+      units.push(span);
+    };
+
+    if (granularity === "letter") {
+      for (const ch of text) addUnit(ch);
+    } else {
+      for (const part of text.split(/(\s+)/)) {
+        if (part === "") continue;
+        if (/^\s+$/.test(part)) el.appendChild(document.createTextNode(part));
+        else addUnit(part);
+      }
+    }
+    return units;
+  }
+
+  // Snapshots each dissolve unit's centre point relative to the cover's own
+  // box -- the same coordinate space wake(x, y) and the mask-image already
+  // use -- so updateTextDissolve can compare it against the ripple's current
+  // radius every frame without re-measuring layout on every tick.
+  private prepareDissolveSpans(): void {
+    const coverRect = this.wakeCover.getBoundingClientRect();
+    const measure = (
+      units: HTMLElement[],
+      band: number,
+      lead: number,
+      blur: number,
+      push: number,
+      glow: boolean,
+    ): DissolveUnit[] =>
+      units.map((el) => {
+        const r = el.getBoundingClientRect();
+        return {
+          el,
+          cx: r.left + r.width / 2 - coverRect.left,
+          cy: r.top + r.height / 2 - coverRect.top,
+          band,
+          lead,
+          blur,
+          push,
+          glow,
+        };
+      });
+    this.dissolveSpans = [
+      ...measure(this.titleUnits, TITLE_DISSOLVE_BAND, TITLE_DISSOLVE_LEAD, TITLE_DISSOLVE_BLUR, TITLE_DISSOLVE_PUSH, true),
+      ...measure(this.hintUnits, HINT_DISSOLVE_BAND, HINT_DISSOLVE_LEAD, HINT_DISSOLVE_BLUR, HINT_DISSOLVE_PUSH, false),
+    ];
   }
 
   // The player's first touch/click both unlocks audio and spawns a genuine
@@ -636,6 +744,7 @@ export class SoundCanvas {
 
     this.wakeCover.classList.add("waking");
     this.wakeAnim = { x, y, startTime: performance.now(), maxRadius: this.maxRadiusFromPoint(x, y) };
+    this.prepareDissolveSpans();
   }
 
   // Grows a circular hole in the cover from the wake point outward, on its
@@ -654,7 +763,58 @@ export class SoundCanvas {
     const mask = `radial-gradient(circle at ${anim.x}px ${anim.y}px, transparent ${radius}px, black ${radius + feather}px)`;
     this.wakeCover.style.setProperty("mask-image", mask);
     this.wakeCover.style.setProperty("-webkit-mask-image", mask);
+    this.updateTextDissolve(anim.x, anim.y, radius);
+    this.updateWaveRing(anim.x, anim.y, radius, t);
     if (t >= 1) this.finishWake();
+  }
+
+  // Dissolves each title letter / hint word in place as the wake ripple's
+  // radius reaches it, rather than fading the whole title on a fixed clock:
+  // a unit this close to (or past) the ripple's current edge blurs, drifts
+  // a few px outward along the ripple's own radial direction, and (title
+  // only) picks up a brief glow, all peaking mid-dissolve and returning to
+  // nothing as it finishes vanishing -- so the title reads as being washed
+  // away by the same wave that's opening the cover, not fading in place.
+  private updateTextDissolve(originX: number, originY: number, radius: number): void {
+    for (const s of this.dissolveSpans) {
+      const dx = s.cx - originX;
+      const dy = s.cy - originY;
+      const dist = Math.hypot(dx, dy);
+      const lp = clamp01((radius - dist + s.lead) / s.band);
+      const style = s.el.style;
+      style.opacity = (1 - lp).toFixed(3);
+      if (lp <= 0) {
+        style.filter = "";
+        style.transform = "";
+        if (s.glow) style.textShadow = "";
+        continue;
+      }
+      const bump = Math.sin(lp * Math.PI);
+      style.filter = `blur(${(bump * s.blur).toFixed(2)}px)`;
+      const n = dist || 1;
+      const push = lp * s.push;
+      style.transform = `translate(${((dx / n) * push).toFixed(2)}px, ${((dy / n) * push).toFixed(2)}px)`;
+      if (s.glow) {
+        style.textShadow = `0 0 ${(bump * 10).toFixed(1)}px rgb(190 210 255 / ${(bump * 0.55).toFixed(2)})`;
+      }
+    }
+  }
+
+  // A single thin, glowing ring -- the same visual language as drawRipple's
+  // canvas ripples -- traced at the wake ripple's exact current position and
+  // radius, rendered as a sibling of the cover (see .wake-cover-wave in
+  // styles.css) so it isn't clipped by the cover's own mask right where it
+  // needs to be visible. Fades out on the same curve as the mask/dissolve so
+  // it reads as the leading edge causing both, not a decoration on top.
+  private updateWaveRing(x: number, y: number, radius: number, t: number): void {
+    const el = this.waveEl;
+    if (!el) return;
+    const size = radius * 2;
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    el.style.width = `${size}px`;
+    el.style.height = `${size}px`;
+    el.style.opacity = (Math.max(0, 1 - t) * 0.8).toFixed(3);
   }
 
   private finishWake(): void {
