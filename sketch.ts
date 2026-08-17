@@ -9,37 +9,43 @@ import type { BrushType, Mode, Ripple, SoundMark } from "./types";
 // Each brush gets its own register, spanning roughly 2-3 octaves so
 // vertical position reads as a clearly audible pitch change -- but every
 // range is quantized through the same shared scale (see scale.ts), so the
-// six registers stay part of one harmonic world instead of six independent
-// tunings.
+// eight registers stay part of one harmonic world instead of eight
+// independent tunings.
 const BELL_RANGE: [number, number] = [64, 96]; // middle to very high
-const CRYSTAL_RANGE: [number, number] = [71, 100]; // middle-high to high
+const GLASS_RANGE: [number, number] = [71, 100]; // middle-high to high
 const SHIMMER_RANGE: [number, number] = [86, 110]; // high to very high
-const METAL_RANGE: [number, number] = [43, 72]; // low-middle to middle-high
+const VEIL_RANGE: [number, number] = [55, 79]; // middle
+const BLOOM_RANGE: [number, number] = [48, 72]; // low-middle to middle
+const HAZE_RANGE: [number, number] = [36, 60]; // low to low-middle
 const DEEP_RANGE: [number, number] = [24, 48]; // very low to middle-low
-const DROP_RANGE: [number, number] = [60, 79]; // restrained -- brightness carries most of the variation
+const PLUCK_RANGE: [number, number] = [60, 79]; // restrained -- brightness carries most of the variation
 
 // Distance between marks placed while dragging a brush. Short, disposable
-// sounds (Drop) tolerate dense painting; long resonant ones (Deep Synth)
-// would stack into an unlistenable wall of tails from the same gesture, so
-// they get much wider spacing.
+// sounds (Soft Pluck) tolerate dense painting; long resonant ones (Haze,
+// Deep) would stack into an unlistenable wall of tails from the same
+// gesture, so they get much wider spacing.
 const STROKE_SPACING: Record<BrushType, number> = {
-  drop: 10,
+  pluck: 10,
   bell: 22,
-  crystal: 26,
-  metal: 46,
+  glass: 26,
+  veil: 40,
+  bloom: 55,
   shimmer: 52,
   deep: 72,
+  haze: 85,
 };
 
 // How long each brush's trigger glow stays lit, matched to its sound's own
 // character rather than one shared flash length.
 const BRUSH_PULSE_MS: Record<BrushType, number> = {
   bell: 320,
-  crystal: 900,
-  drop: 160,
-  deep: 2200,
-  metal: 2000,
+  glass: 900,
+  pluck: 160,
+  veil: 1800,
+  bloom: 2400,
+  deep: 2400,
   shimmer: 2600,
+  haze: 3200,
 };
 
 const DRAG_THRESHOLD = 6; // px of movement before a pointerdown-on-a-mark becomes a drag
@@ -61,11 +67,13 @@ const HOLD_MAX_MS = 1500;
 
 const BRUSH_COLOR: Record<BrushType, string> = {
   bell: "255, 244, 214",
-  crystal: "180, 230, 255",
-  drop: "140, 200, 230",
+  glass: "180, 230, 255",
+  pluck: "230, 210, 195",
+  bloom: "235, 190, 220",
+  haze: "195, 195, 225",
   deep: "110, 110, 220",
-  metal: "175, 185, 205",
   shimmer: "225, 195, 255",
+  veil: "205, 205, 235",
 };
 
 // Static concentric guides behind everything else, centred on the loop
@@ -203,8 +211,9 @@ export class SoundCanvas {
     // sampling across the new register spread (bright/high down to deep/low).
     this.marks.push(
       this.makeMark(0.56, 0.38, "bell"),
-      this.makeMark(0.44, 0.44, "crystal"),
-      this.makeMark(0.5, 0.52, "drop"),
+      this.makeMark(0.44, 0.44, "glass"),
+      this.makeMark(0.5, 0.52, "pluck"),
+      this.makeMark(0.6, 0.6, "veil"),
       this.makeMark(0.47, 0.68, "deep"),
     );
   }
@@ -415,21 +424,27 @@ export class SoundCanvas {
           this.setMode({ kind: "brush", brush: "bell" });
           break;
         case "2":
-          this.setMode({ kind: "brush", brush: "crystal" });
+          this.setMode({ kind: "brush", brush: "glass" });
           break;
         case "3":
-          this.setMode({ kind: "brush", brush: "drop" });
+          this.setMode({ kind: "brush", brush: "pluck" });
           break;
         case "4":
-          this.setMode({ kind: "brush", brush: "deep" });
+          this.setMode({ kind: "brush", brush: "bloom" });
           break;
         case "5":
-          this.setMode({ kind: "brush", brush: "metal" });
+          this.setMode({ kind: "brush", brush: "haze" });
           break;
         case "6":
-          this.setMode({ kind: "brush", brush: "shimmer" });
+          this.setMode({ kind: "brush", brush: "deep" });
           break;
         case "7":
+          this.setMode({ kind: "brush", brush: "shimmer" });
+          break;
+        case "8":
+          this.setMode({ kind: "brush", brush: "veil" });
+          break;
+        case "9":
           this.setMode({ kind: "erase" });
           break;
         case "Delete":
@@ -572,20 +587,26 @@ export class SoundCanvas {
       case "bell":
         this.audio.playBell(quantizeToScale(1 - mark.ny, BELL_RANGE[0], BELL_RANGE[1]), pan, mark.resonance);
         break;
-      case "crystal":
-        this.audio.playCrystal(quantizeToScale(1 - mark.ny, CRYSTAL_RANGE[0], CRYSTAL_RANGE[1]), pan, mark.resonance);
+      case "glass":
+        this.audio.playGlass(quantizeToScale(1 - mark.ny, GLASS_RANGE[0], GLASS_RANGE[1]), pan, mark.resonance);
         break;
-      case "drop":
-        this.audio.playDrop(quantizeToScale(1 - mark.ny, DROP_RANGE[0], DROP_RANGE[1]), mark.ny, pan, mark.resonance);
+      case "pluck":
+        this.audio.playPluck(quantizeToScale(1 - mark.ny, PLUCK_RANGE[0], PLUCK_RANGE[1]), mark.ny, pan, mark.resonance);
+        break;
+      case "bloom":
+        this.audio.playBloom(quantizeToScale(1 - mark.ny, BLOOM_RANGE[0], BLOOM_RANGE[1]), pan, mark.resonance);
+        break;
+      case "haze":
+        this.audio.playHaze(quantizeToScale(1 - mark.ny, HAZE_RANGE[0], HAZE_RANGE[1]), pan, mark.resonance);
         break;
       case "deep":
         this.audio.playDeep(quantizeToScale(1 - mark.ny, DEEP_RANGE[0], DEEP_RANGE[1]), pan, mark.resonance);
         break;
-      case "metal":
-        this.audio.playMetal(quantizeToScale(1 - mark.ny, METAL_RANGE[0], METAL_RANGE[1]), pan, mark.resonance);
-        break;
       case "shimmer":
         this.audio.playShimmer(quantizeToScale(1 - mark.ny, SHIMMER_RANGE[0], SHIMMER_RANGE[1]), pan, mark.resonance);
+        break;
+      case "veil":
+        this.audio.playVeil(quantizeToScale(1 - mark.ny, VEIL_RANGE[0], VEIL_RANGE[1]), pan, mark.resonance);
         break;
       default:
         break;
@@ -857,7 +878,7 @@ export class SoundCanvas {
         ctx.fill();
         break;
       }
-      case "crystal": {
+      case "glass": {
         // A faceted outline; a second, offset outline appears while
         // pulsing for a subtle "refracted" doubling.
         const r = 9;
@@ -867,9 +888,9 @@ export class SoundCanvas {
         }
         break;
       }
-      case "drop": {
+      case "pluck": {
         // Tiny and delicate; a quick expanding ring stands in for the
-        // percussive "tap" without the visual weight of a hit.
+        // articulation without the visual weight of a hit.
         const r = 3 + pulse * 1.5;
         ctx.fillStyle = `rgba(${color}, 0.85)`;
         ctx.beginPath();
@@ -896,13 +917,41 @@ export class SoundCanvas {
         ctx.fill();
         break;
       }
-      case "metal": {
-        // A ring rather than a filled shape, widening slowly while it rings.
-        const r = 10 + (1 - pulse) * 6 + pulse * 8;
+      case "bloom": {
+        // Starts small and opens outward as the sound blooms, fading as it
+        // grows -- the reverse of a percussive flash-then-shrink.
+        const grow = 1 - pulse;
+        const r = 8 + grow * 24;
+        const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+        grad.addColorStop(0, `rgba(${color}, ${0.15 + pulse * 0.35})`);
+        grad.addColorStop(1, `rgba(${color}, 0)`);
+        ctx.fillStyle = grad;
         ctx.beginPath();
         ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(${color}, ${0.5 + pulse * 0.3})`;
-        ctx.lineWidth = 2.2;
+        ctx.fill();
+        break;
+      }
+      case "haze": {
+        // Wide, barely-visible wash -- a background atmosphere, not a
+        // target to look at.
+        const r = 34 + pulse * 22;
+        const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+        grad.addColorStop(0, `rgba(${color}, ${0.06 + pulse * 0.1})`);
+        grad.addColorStop(1, `rgba(${color}, 0)`);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+      case "veil": {
+        // A soft, hollow ring -- thinner and dimmer than Metal's old solid
+        // stroke, so it reads as floating rather than struck.
+        const r = 13 + (1 - pulse) * 10;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(${color}, ${0.16 + pulse * 0.22})`;
+        ctx.lineWidth = 1.4;
         ctx.stroke();
         break;
       }

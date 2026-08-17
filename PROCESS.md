@@ -11,13 +11,14 @@ canvas and a looping ripple, expanding outward from the centre, plays whatever
 it touches --- distance from the centre is time in the loop, so the ripple
 itself is the sequencer. Clicking or tapping anywhere also sends out an
 independent one-shot ripple from that exact point, for live playing on top of
-the loop. Six sound brushes (Bell, Crystal, Drop, Deep Synth, Metal, Shimmer),
-each with its own Web-Audio synthesis and its own visual shape, form one
-coherent cosmic palette --- short bright textures, resonant metallic and
-crystalline tones, and a slow, deep low end all sharing the same hidden
-harmonic world; vertical position sets pitch (quantised to a shared pentatonic
-scale, with each brush given its own register, so nothing plays a "wrong"
-note) or, for Drop, brightness. There's no tutorial, start button, or score
+the loop. Eight sound brushes (Bell, Glass, Soft Pluck, Bloom, Haze, Deep, Shimmer,
+Veil), each with its own Web-Audio synthesis and its own visual shape, form
+one coherent dream-pop palette --- short bright textures, slowly-blooming
+pads, and a soft, deep low end all sharing the same hidden harmonic world and
+a shared, selectively-applied reverb and delay; vertical position sets pitch
+(quantised to a shared pentatonic scale, with each brush given its own
+register, so nothing plays a "wrong" note) or, for Soft Pluck, brightness.
+There's no tutorial, start button, or score
 --- the first click both unlocks audio and triggers the pre-placed starter
 marks, so sound happens before any UI is read.
 
@@ -212,6 +213,67 @@ its own range rather than a single shared multiplier, so a fully-held Drop
 stays a short, delicate sound while a fully-held Deep Synth or Shimmer can
 become genuinely sustained --- the player is shaping not only timbre, pitch,
 and timing, but also how long each painted sound rings on.
+
+## A second listening pass: from cosmic to dream-pop
+
+Listening to the six-voice cosmic palette (Bell, Crystal, Drop, Deep Synth,
+Metal, Shimmer) surfaced a second mismatch the checks had no way to catch.
+Visually, the cosmic direction worked --- the concentric rings, the dark
+canvas, the radial ripple all read as intended. Sonically, some of the short
+sounds didn't: Drop in particular swept its own oscillator pitch downward on
+a fast, sharp attack, which is the textbook synthesis recipe for a laser or
+"pew" sound effect, not a musical texture. Played on the canvas it sounded
+like triggering a sci-fi shooting effect, not painting a note --- a
+sci-fi-toy character that no amount of added reverb was going to fix, because
+the problem was the source timbre and envelope, not the space around it.
+
+The goal was refined from a generic "cosmic ambient" sound world toward a
+more specific dream-pop / ethereal target: light, hazy, washed-out, floating,
+slightly psychedelic --- a texture you paint into, not a button you press.
+Bell and the sustained low Deep voice were both kept, since they already
+fit that target once retuned; everything with a game-like or sci-fi-effect
+character was removed or rebuilt. Drop's pitch-sweep was replaced entirely
+by Soft Pluck, which keeps the oscillator's pitch fixed and instead sweeps a
+lowpass filter's cutoff downward for articulation --- a filter envelope
+closing rather than a pitch bend, which is architecturally why it can no
+longer read as a laser no matter how it's mixed. Metal was dropped outright:
+its resonant-plate, inharmonic-partial design was squarely in the "hard
+metallic impact / industrial clang" territory the new direction explicitly
+ruled out, and nothing about softening its envelope was going to change what
+kind of sound it fundamentally was. The palette was expanded to eight voices
+(Bell, Glass, Soft Pluck, Bloom, Haze, Deep, Shimmer, Veil) with deliberately
+distinct sonic roles spanning short/foreground, medium/body, and long/
+atmosphere, rather than padding the count with near-duplicates.
+
+Fade-in/fade-out envelopes became a first-class part of the sound design
+rather than an afterthought: every voice now follows attack-body-release
+instead of an instant attack into an abrupt stop, so a ripple triggering a
+mark feels like it wakes the sound up rather than pressing a sound-effect
+button. Bloom's filter literally opens (sweeping up, then settling back
+down) to make its bloom audible; Haze, Bloom and Deep were given multiple
+slightly detuned oscillators summed together, turning a flat single-oscillator
+tone into a wider "wwaaaahhh" without drifting audibly out of tune. Long-press
+duration --- the fourth expressive control from the previous pass --- was
+re-integrated per brush rather than replaced: the same tap-vs-hold gesture
+now stretches each voice's own envelope by a different amount, so a fully-held
+Soft Pluck stays short and rhythmic while a fully-held Haze or Deep becomes
+genuinely sustained, keeping each brush's identity intact regardless of how
+long it's held. A shared, very subtle delay send was added alongside the
+existing reverb, but only on the voices that benefit from feeling distant
+(Bell, Glass, Bloom, Haze, Veil) rather than on all eight, since a delay on
+every voice would have blurred the short/long contrast the palette depends
+on. The always-on ambient drone was also rebuilt, since its previous single
+low tone read as a spaceship hum; it's now a quietly detuned three-oscillator
+bed plus a whisper-quiet high-passed air layer, low enough in gain that a
+player shouldn't consciously notice background music playing at all.
+
+As with the first sound redesign, whether any of this actually sounds like a
+musical texture rather than a collection of space-effects is not something
+`pnpm check` can verify --- it only confirms eight brushes exist, register
+ranges stay in bounds, and nothing throws. This is another example of human
+listening correcting something automated tests cannot judge; the redesign
+is deliberately not treated as finished until it has actually been listened
+to on the built page.
 
 ## Before you ship
 

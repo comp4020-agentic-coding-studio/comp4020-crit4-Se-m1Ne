@@ -2,8 +2,8 @@
 // forgiving major-pentatonic scale, so random drawing still sounds musical.
 // Every brush quantizes through this same SHARED_ROOT_MIDI anchor, even
 // though each brush is given its own [min, max] register (see sketch.ts) --
-// that shared anchor is what makes six differently-ranged voices sound like
-// one harmonic world instead of six independently-tuned instruments.
+// that shared anchor is what makes eight differently-ranged voices sound like
+// one harmonic world instead of eight independently-tuned instruments.
 
 const PENTATONIC = [0, 2, 4, 7, 9];
 const SHARED_ROOT_MIDI = 60; // C4 -- the one shared anchor every brush's scale is built from

@@ -297,18 +297,29 @@ main {
   box-shadow: 0 0 10px 3px rgb(255 244 214 / 70%);
 }
 
-.brush-crystal .brush-icon {
+.brush-glass .brush-icon {
   clip-path: polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
-  background: rgb(180 230 255 / 25%);
-  border: 1.4px solid rgb(180 230 255 / 85%);
+  background: rgb(180 230 255 / 20%);
+  border: 1.4px solid rgb(180 230 255 / 75%);
 }
 
-.brush-drop .brush-icon {
+.brush-pluck .brush-icon {
   width: 0.5rem;
   height: 0.5rem;
   margin: 0.45rem;
   border-radius: 50%;
-  background: rgb(140 200 230 / 90%);
+  background: rgb(230 210 195 / 88%);
+}
+
+.brush-bloom .brush-icon {
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(235 190 220 / 75%), rgb(235 190 220 / 0%));
+  box-shadow: 0 0 10px 5px rgb(235 190 220 / 30%);
+}
+
+.brush-haze .brush-icon {
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(195 195 225 / 55%), rgb(195 195 225 / 0%));
 }
 
 .brush-deep .brush-icon {
@@ -317,10 +328,10 @@ main {
   box-shadow: 0 0 12px 4px rgb(110 110 220 / 55%);
 }
 
-.brush-metal .brush-icon {
+.brush-veil .brush-icon {
   border-radius: 50%;
   background: none;
-  border: 2.2px solid rgb(175 185 205 / 85%);
+  border: 1.4px solid rgb(205 205 235 / 55%);
 }
 
 .brush-shimmer .brush-icon {

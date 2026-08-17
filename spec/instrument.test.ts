@@ -24,10 +24,12 @@ describe("sound canvas page", () => {
     expect(doc?.querySelectorAll("canvas").length).toBe(1);
   });
 
-  it("offers exactly six visually distinct sound brushes", () => {
+  it("offers exactly eight visually distinct sound brushes", () => {
     const buttons = doc?.querySelectorAll<HTMLButtonElement>("[data-brush]") ?? [];
     const brushes = new Set(Array.from(buttons).map((b) => b.dataset.brush));
-    expect(brushes).toEqual(new Set(["bell", "crystal", "drop", "deep", "metal", "shimmer"]));
+    expect(brushes).toEqual(
+      new Set(["bell", "glass", "pluck", "bloom", "haze", "deep", "shimmer", "veil"]),
+    );
     // Each brush must carry its own class, so a look at styles.css shows a
     // distinct visual per brush rather than one shared "instrument" look.
     for (const btn of buttons) {
@@ -82,15 +84,15 @@ describe("pitch quantization", () => {
   it("keeps different brush registers on the same shared scale", () => {
     // Two brushes with very different, non-overlapping ranges should still
     // only ever produce notes from the same pentatonic world -- this is
-    // the "hidden harmonic quantization" that keeps six differently
-    // registered brushes sounding like one instrument rather than six
+    // the "hidden harmonic quantization" that keeps eight differently
+    // registered brushes sounding like one instrument rather than eight
     // independently-tuned ones.
     const isOnSharedScale = (midi: number) => {
       const step = ((midi - 60) % 12) + 12 * 2; // shift positive, then re-mod below
       return [0, 2, 4, 7, 9].includes(step % 12);
     };
     for (let i = 0; i <= 10; i++) {
-      expect(isOnSharedScale(quantizeToScale(i / 10, 24, 48))).toBe(true); // Deep Synth register
+      expect(isOnSharedScale(quantizeToScale(i / 10, 24, 48))).toBe(true); // Deep register
       expect(isOnSharedScale(quantizeToScale(i / 10, 86, 110))).toBe(true); // Shimmer register
     }
   });
