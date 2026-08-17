@@ -324,21 +324,31 @@ export class AudioEngine {
    * stay audible even inside a dense, washed mix. `resonance` (0 = tap, 1 =
    * full hold) stretches how long each partial rings on -- the attack stays
    * fixed and soft regardless of hold length, so it never turns harsh.
+   *
+   * `highness` tracks how far this note sits into the top octave of Bell's
+   * own range (see BELL_RANGE in sketch.ts) and gently trims gain, upper
+   * partials, the lowpass, and attack speed together as pitch rises --
+   * several small nudges rather than one flat cut -- so a high Bell reads
+   * as "high and delicate" instead of "high and piercing." Its share of the
+   * reverb/delay send grows to match, so more of a high Bell's presence
+   * comes from its soft tail rather than the dry transient.
    */
   playBell(midi: number, pan: number, resonance: number): void {
     const stretch = this.durationScale("bell", resonance);
     const { ctx } = this.ensure();
     const freq = midiToFreq(midi);
     const now = ctx.currentTime;
+    const highness = clamp01((midi - 76) / 20);
 
     const partials: [number, number, number][] = [
       [1, 1, 1.9 * stretch],
-      [2.4, 0.32, 1.0 * stretch],
-      [3.8, 0.14, 0.55 * stretch],
+      [2.4, 0.32 * (1 - highness * 0.35), 1.0 * stretch],
+      [3.8, 0.14 * (1 - highness * 0.55), 0.55 * stretch],
     ];
     const scale = this.beginVoice("bell", partials[0][2] + 0.3);
     if (scale === null) return;
-    const peak = 0.27 * scale;
+    const peak = 0.2 * (1 - highness * 0.3) * scale;
+    const attack = 0.014 + highness * 0.016;
 
     const sum = ctx.createGain();
     for (const [ratio, gainMul, decay] of partials) {
@@ -347,7 +357,7 @@ export class AudioEngine {
       osc.frequency.setValueAtTime(freq * ratio, now);
       const g = ctx.createGain();
       g.gain.setValueAtTime(0, now);
-      g.gain.linearRampToValueAtTime(peak * gainMul, now + 0.014);
+      g.gain.linearRampToValueAtTime(peak * gainMul, now + attack);
       g.gain.exponentialRampToValueAtTime(0.0001, now + decay);
       osc.connect(g).connect(sum);
       osc.start(now);
@@ -356,11 +366,11 @@ export class AudioEngine {
 
     const filter = ctx.createBiquadFilter();
     filter.type = "lowpass";
-    filter.frequency.value = freq * 4.5;
+    filter.frequency.value = freq * (4.5 - highness * 2.5);
     sum.connect(filter);
     // A longer hold also sends a touch more into the shared reverb, so a
     // resonant Bell reads as more spacious, not just longer.
-    this.output(filter, pan, 0.24 + resonance * 0.16, 0.1);
+    this.output(filter, pan, 0.24 + resonance * 0.16 + highness * 0.1, 0.1 + highness * 0.05);
   }
 
   /**
