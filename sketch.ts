@@ -46,6 +46,19 @@ const DRAG_THRESHOLD = 6; // px of movement before a pointerdown-on-a-mark becom
 const HIT_RADIUS = 24; // px, for picking up / selecting an existing mark
 const ERASE_FLASH_MS = 260;
 
+// Hold-to-resonate: while placing a brush mark, staying within this many px
+// of the pointerdown point counts as "holding still" and grows that mark's
+// resonance; moving past it switches to normal stroke painting. Bigger than
+// DRAG_THRESHOLD on purpose -- that one guards an intentional drag gesture,
+// this one has to absorb ordinary hand tremor during a hold without
+// accidentally dumping the player into drawing mode.
+const HOLD_MOVE_THRESHOLD = 14;
+// Milliseconds of holding still to reach full resonance (resonance = 1).
+// A quick tap lands near 0 (this brush's usual, unstretched sound); holding
+// past this just saturates at each brush's own maximum -- see
+// RESONANCE_GROWTH in audio.ts for how that maximum differs per brush.
+const HOLD_MAX_MS = 1500;
+
 const BRUSH_COLOR: Record<BrushType, string> = {
   bell: "255, 244, 214",
   crystal: "180, 230, 255",
@@ -88,6 +101,14 @@ interface DragState {
   movedPast: boolean;
 }
 
+interface BrushHoldState {
+  markId: number;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  startTime: number;
+}
+
 interface EraseFlash {
   x: number;
   y: number;
@@ -125,6 +146,9 @@ export class SoundCanvas {
   private dragging: DragState | null = null;
   private strokePointerId: number | null = null;
   private strokeLast: { nx: number; ny: number } | null = null;
+  // The mark currently being "held" to build up resonance -- null once the
+  // pointer lifts, moves past HOLD_MOVE_THRESHOLD, or a new stroke begins.
+  private brushHold: BrushHoldState | null = null;
 
   private eraseFlashes: EraseFlash[] = [];
   private clearFlashUntil = 0;
@@ -237,7 +261,7 @@ export class SoundCanvas {
   // --- factories ------------------------------------------------------------
 
   private makeMark(nx: number, ny: number, brush: BrushType): SoundMark {
-    return { id: nextId++, nx, ny, brush, seed: Math.random(), pulseUntil: 0 };
+    return { id: nextId++, nx, ny, brush, seed: Math.random(), pulseUntil: 0, resonance: 0 };
   }
 
   private makeRipple(x: number, y: number, kind: "loop" | "single"): Ripple {
@@ -264,6 +288,10 @@ export class SoundCanvas {
     this.canvas.addEventListener("pointermove", (e) => this.onPointerMove(e));
     this.canvas.addEventListener("pointerup", (e) => this.onPointerEnd(e));
     this.canvas.addEventListener("pointercancel", (e) => this.onPointerEnd(e));
+    // A touch-and-hold is exactly the gesture this canvas uses for
+    // resonance -- without this, mobile browsers race it against their own
+    // long-press context menu / text-selection gesture.
+    this.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
   }
 
   private onPointerDown(e: PointerEvent): void {
@@ -276,7 +304,11 @@ export class SoundCanvas {
       this.strokePointerId = e.pointerId;
       this.strokeLast = { nx, ny };
       this.canvas.setPointerCapture(e.pointerId);
-      this.marks.push(this.makeMark(nx, ny, this.mode.brush));
+      const mark = this.makeMark(nx, ny, this.mode.brush);
+      this.marks.push(mark);
+      // Tap paints a sound; holding still from here on grows its resonance
+      // (see onPointerMove/finalizeBrushHold) until release or a drag starts.
+      this.brushHold = { markId: mark.id, pointerId: e.pointerId, startX: x, startY: y, startTime: performance.now() };
       return;
     }
 
@@ -305,6 +337,17 @@ export class SoundCanvas {
     this.lastPointerNy = ny;
 
     if (this.mode.kind === "brush" && this.strokePointerId === e.pointerId && this.strokeLast) {
+      if (this.brushHold && this.brushHold.pointerId === e.pointerId) {
+        const heldMoved = Math.hypot(x - this.brushHold.startX, y - this.brushHold.startY);
+        if (heldMoved <= HOLD_MOVE_THRESHOLD) {
+          // Still holding still: don't paint a trail, just let resonance
+          // keep building on the one mark already placed at pointerdown.
+          return;
+        }
+        // Moved past the hold tolerance -- lock in whatever resonance had
+        // built up so far and fall through to normal stroke painting.
+        this.finalizeBrushHold(performance.now());
+      }
       const last = this.toPixel(this.strokeLast.nx, this.strokeLast.ny);
       if (Math.hypot(x - last.x, y - last.y) >= STROKE_SPACING[this.mode.brush]) {
         this.marks.push(this.makeMark(nx, ny, this.mode.brush));
@@ -336,8 +379,24 @@ export class SoundCanvas {
       this.strokePointerId = null;
       this.strokeLast = null;
     }
+    if (this.brushHold && this.brushHold.pointerId === e.pointerId) {
+      this.finalizeBrushHold(performance.now());
+    }
     if (this.dragging && this.dragging.pointerId === e.pointerId) {
       this.dragging = null;
+    }
+  }
+
+  // Bakes the elapsed hold time into the held mark's stored resonance and
+  // ends the hold. Safe to call even if the mark was erased mid-hold, or if
+  // the hold was already finalized (e.g. by a drag) -- it's a no-op then.
+  private finalizeBrushHold(now: number): void {
+    const held = this.brushHold;
+    if (!held) return;
+    this.brushHold = null;
+    const mark = this.marks.find((m) => m.id === held.markId);
+    if (mark) {
+      mark.resonance = clamp01((now - held.startTime) / HOLD_MAX_MS);
     }
   }
 
@@ -501,29 +560,32 @@ export class SoundCanvas {
   // --- simulation -------------------------------------------------------------
 
   private trigger(mark: SoundMark, now: number): void {
-    mark.pulseUntil = now + BRUSH_PULSE_MS[mark.brush];
+    // The trigger glow's length follows the same stretch as the sound
+    // itself, so a resonant mark visibly keeps glowing for as long as it's
+    // actually still sounding.
+    mark.pulseUntil = now + BRUSH_PULSE_MS[mark.brush] * this.audio.durationScale(mark.brush, mark.resonance);
     // Stereo position mirrors horizontal painting position, so the sound's
     // spatial image matches the visual one -- part of the shared "cosmic
     // space" every brush is routed through.
     const pan = (mark.nx * 2 - 1) * 0.6;
     switch (mark.brush) {
       case "bell":
-        this.audio.playBell(quantizeToScale(1 - mark.ny, BELL_RANGE[0], BELL_RANGE[1]), pan);
+        this.audio.playBell(quantizeToScale(1 - mark.ny, BELL_RANGE[0], BELL_RANGE[1]), pan, mark.resonance);
         break;
       case "crystal":
-        this.audio.playCrystal(quantizeToScale(1 - mark.ny, CRYSTAL_RANGE[0], CRYSTAL_RANGE[1]), pan);
+        this.audio.playCrystal(quantizeToScale(1 - mark.ny, CRYSTAL_RANGE[0], CRYSTAL_RANGE[1]), pan, mark.resonance);
         break;
       case "drop":
-        this.audio.playDrop(quantizeToScale(1 - mark.ny, DROP_RANGE[0], DROP_RANGE[1]), mark.ny, pan);
+        this.audio.playDrop(quantizeToScale(1 - mark.ny, DROP_RANGE[0], DROP_RANGE[1]), mark.ny, pan, mark.resonance);
         break;
       case "deep":
-        this.audio.playDeep(quantizeToScale(1 - mark.ny, DEEP_RANGE[0], DEEP_RANGE[1]), pan);
+        this.audio.playDeep(quantizeToScale(1 - mark.ny, DEEP_RANGE[0], DEEP_RANGE[1]), pan, mark.resonance);
         break;
       case "metal":
-        this.audio.playMetal(quantizeToScale(1 - mark.ny, METAL_RANGE[0], METAL_RANGE[1]), pan);
+        this.audio.playMetal(quantizeToScale(1 - mark.ny, METAL_RANGE[0], METAL_RANGE[1]), pan, mark.resonance);
         break;
       case "shimmer":
-        this.audio.playShimmer(quantizeToScale(1 - mark.ny, SHIMMER_RANGE[0], SHIMMER_RANGE[1]), pan);
+        this.audio.playShimmer(quantizeToScale(1 - mark.ny, SHIMMER_RANGE[0], SHIMMER_RANGE[1]), pan, mark.resonance);
         break;
       default:
         break;
@@ -732,13 +794,47 @@ export class SoundCanvas {
     ctx.restore();
   }
 
+  // A mark holding still under a brush gesture grows a faint halo live, in
+  // step with the resonance it's currently accumulating -- this is the only
+  // duration feedback while the pointer is still down; the permanent tiered
+  // rings in drawMark take over once the hold is released.
+  private drawHoldHalo(x: number, y: number, now: number): void {
+    if (!this.brushHold) return;
+    const heldFor = now - this.brushHold.startTime;
+    const live = clamp01(heldFor / HOLD_MAX_MS);
+    if (live <= 0.02) return;
+    const ctx = this.ctx2d;
+    const r = 11 + live * 24;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255, 255, 255, ${(0.1 + live * 0.24).toFixed(3)})`;
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // How many extra concentric rings a placed mark keeps as a permanent,
+  // at-a-glance trace of how resonant it was made -- coarse on purpose
+  // (three tiers, not a continuous readout): the spec asks for a subtle
+  // "this rang for a while" cue, not a duration number.
+  private resonanceRingCount(resonance: number): number {
+    if (resonance > 0.66) return 2;
+    if (resonance > 0.33) return 1;
+    return 0;
+  }
+
   private drawMark(mark: SoundMark, now: number): void {
     const ctx = this.ctx2d;
     const { x, y } = this.toPixel(mark.nx, mark.ny);
-    const pulseDuration = BRUSH_PULSE_MS[mark.brush];
+    const pulseDuration = BRUSH_PULSE_MS[mark.brush] * this.audio.durationScale(mark.brush, mark.resonance);
     const pulse = mark.pulseUntil > now ? (mark.pulseUntil - now) / pulseDuration : 0;
     const selected = mark.id === this.selectedMarkId;
     const color = BRUSH_COLOR[mark.brush];
+
+    if (this.brushHold && this.brushHold.markId === mark.id) {
+      this.drawHoldHalo(x, y, now);
+    }
 
     ctx.save();
     if (selected) {
@@ -836,6 +932,16 @@ export class SoundCanvas {
       default:
         break;
     }
+
+    const ringCount = this.resonanceRingCount(mark.resonance);
+    for (let i = 1; i <= ringCount; i++) {
+      ctx.beginPath();
+      ctx.arc(x, y, 12 + i * 7, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(${color}, ${(0.24 - i * 0.06).toFixed(3)})`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
     ctx.restore();
   }
 

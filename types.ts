@@ -13,6 +13,12 @@ export interface SoundMark {
   seed: number;
   /** performance.now() timestamp the trigger glow should fade out by; 0 = idle. */
   pulseUntil: number;
+  /**
+   * 0 (quick tap) to 1 (held to the maximum) -- how long/resonant this
+   * mark's sound plays when a ripple later triggers it. Set once, when the
+   * mark is placed; independent of pitch and brush.
+   */
+  resonance: number;
 }
 
 export interface Ripple {

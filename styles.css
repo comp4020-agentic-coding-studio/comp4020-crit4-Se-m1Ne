@@ -40,6 +40,8 @@ main {
   height: 100%;
   touch-action: none;
   cursor: crosshair;
+  -webkit-touch-callout: none;
+  user-select: none;
 }
 
 #sound-canvas.brush-mode {

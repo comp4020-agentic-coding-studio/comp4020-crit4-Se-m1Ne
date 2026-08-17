@@ -196,6 +196,23 @@ driven by actually listening to the built instrument, not by making the
 automated checks pass, and the checks staying green throughout is why they
 were treated as necessary but not sufficient here.
 
+## Hold duration as a fourth expressive control
+
+Painting a mark used to carry only three choices: which brush, where (pitch),
+and when. A hold gesture adds a fourth: how long that mark resonates when a
+ripple later touches it. Tapping paints a mark with its brush's usual, short
+character; holding the pointer still on that same spot grows its resonance
+continuously, up to a sensible per-brush maximum, and moving past a small
+tolerance switches back to ordinary stroke painting instead of accidentally
+stretching every dragged mark. The duration is never shown as a number --- a
+faint halo grows while holding, and the placed mark keeps a small permanent
+trace (one or two extra rings) of how resonant it was made, using the same
+visual language as the rest of the instrument. Each brush stretches within
+its own range rather than a single shared multiplier, so a fully-held Drop
+stays a short, delicate sound while a fully-held Deep Synth or Shimmer can
+become genuinely sustained --- the player is shaping not only timbre, pitch,
+and timing, but also how long each painted sound rings on.
+
 ## Before you ship
 
 `pnpm check:evidence` verifies your citations resolve to real commits, that

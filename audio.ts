@@ -35,6 +35,24 @@ const MAX_VOICES: Record<BrushType, number> = {
   deep: 3,
 };
 
+// How much longer a brush's own decay/sustain/tail can stretch under a full
+// hold, as a multiplier on top of its quick-tap (resonance = 0) length.
+// Different per brush on purpose: "hold longer" means "more resonance within
+// this brush's own character," not "every brush becomes equally long" --
+// Drop stays short even at 1, Crystal and Deep Synth have the most room.
+const RESONANCE_GROWTH: Record<BrushType, number> = {
+  bell: 1.6,
+  crystal: 1.8,
+  drop: 0.9,
+  deep: 1.0,
+  metal: 1.5,
+  shimmer: 0.9,
+};
+
+function clamp01(v: number): number {
+  return Math.min(1, Math.max(0, v));
+}
+
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private bus: GainNode | null = null;
@@ -93,6 +111,16 @@ export class AudioEngine {
   /** Call on the first user gesture to satisfy autoplay policy. Safe to call repeatedly. */
   unlock(): void {
     this.ensure();
+  }
+
+  /**
+   * How much longer `brush`'s envelope should stretch for a given hold
+   * amount (0 = quick tap, 1 = held to the maximum). Exposed publicly so the
+   * canvas can size a mark's visual pulse to match its actual sound length,
+   * without duplicating each brush's envelope math.
+   */
+  durationScale(brush: BrushType, resonance: number): number {
+    return 1 + clamp01(resonance) * RESONANCE_GROWTH[brush];
   }
 
   // --- shared plumbing ------------------------------------------------------
@@ -193,21 +221,27 @@ export class AudioEngine {
 
   // --- the six brushes --------------------------------------------------------
 
-  /** Bell -- clear, bright, pure. Fast attack, moderate decay. "TING~~" */
-  playBell(midi: number, pan: number): void {
-    const scale = this.beginVoice("bell", 2.2);
-    if (scale === null) return;
+  /**
+   * Bell -- clear, bright, pure. Fast attack, moderate decay. "TING~~".
+   * `resonance` (0 = tap, 1 = full hold) stretches how long each partial
+   * rings on -- the attack stays fixed and crisp regardless of hold length.
+   */
+  playBell(midi: number, pan: number, resonance: number): void {
+    const stretch = this.durationScale("bell", resonance);
     const { ctx } = this.ensure();
     const freq = midiToFreq(midi);
     const now = ctx.currentTime;
+
+    const partials: [number, number, number][] = [
+      [1, 1, 1.7 * stretch],
+      [2.4, 0.35, 0.9 * stretch],
+      [3.8, 0.16, 0.5 * stretch],
+    ];
+    const scale = this.beginVoice("bell", partials[0][2] + 0.3);
+    if (scale === null) return;
     const peak = 0.3 * scale;
 
     const sum = ctx.createGain();
-    const partials: [number, number, number][] = [
-      [1, 1, 1.7],
-      [2.4, 0.35, 0.9],
-      [3.8, 0.16, 0.5],
-    ];
     for (const [ratio, gainMul, decay] of partials) {
       const osc = ctx.createOscillator();
       osc.type = "sine";
@@ -225,16 +259,24 @@ export class AudioEngine {
     filter.type = "lowpass";
     filter.frequency.value = freq * 6;
     sum.connect(filter);
-    this.output(filter, pan, 0.22);
+    // A longer hold also sends a touch more into the shared reverb, so a
+    // resonant Bell reads as more spacious, not just longer.
+    this.output(filter, pan, 0.22 + resonance * 0.16);
   }
 
-  /** Crystal -- glassy, more complex partials, softer attack, longer resonance. "dliiing~~~~" */
-  playCrystal(midi: number, pan: number): void {
-    const scale = this.beginVoice("crystal", 3.4);
-    if (scale === null) return;
+  /**
+   * Crystal -- glassy, more complex partials, softer attack, longer
+   * resonance. "dliiing~~~~". `resonance` stretches the decay and the
+   * bandpass sweep together so the glassy motion still matches the tail.
+   */
+  playCrystal(midi: number, pan: number, resonance: number): void {
+    const stretch = this.durationScale("crystal", resonance);
     const { ctx } = this.ensure();
     const freq = midiToFreq(midi);
     const now = ctx.currentTime;
+
+    const scale = this.beginVoice("crystal", 3.4 * stretch);
+    if (scale === null) return;
     const peak = 0.22 * scale;
 
     const sum = ctx.createGain();
@@ -251,32 +293,37 @@ export class AudioEngine {
       const g = ctx.createGain();
       g.gain.setValueAtTime(0, now);
       g.gain.linearRampToValueAtTime(peak * gainMul, now + 0.05);
-      g.gain.exponentialRampToValueAtTime(0.0001, now + 2.6 + gainMul * 0.4);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + (2.6 + gainMul * 0.4) * stretch);
       osc.connect(g).connect(sum);
       osc.start(now);
-      osc.stop(now + 3.2);
+      osc.stop(now + 3.2 * stretch);
     }
 
     const filter = ctx.createBiquadFilter();
     filter.type = "bandpass";
     filter.Q.value = 2.4;
     filter.frequency.setValueAtTime(freq * 2.5, now);
-    filter.frequency.exponentialRampToValueAtTime(freq * 1.4, now + 2.8);
+    filter.frequency.exponentialRampToValueAtTime(freq * 1.4, now + 2.8 * stretch);
     sum.connect(filter);
-    this.output(filter, pan, 0.42);
+    this.output(filter, pan, 0.42 + resonance * 0.18);
   }
 
   /**
    * Drop -- a water droplet: soft plip/bloop, short and delicate. Provides
    * rhythmic detail in place of a percussion kit. `ny` (0 = top of canvas)
-   * gives a restrained pitch nudge and controls brightness.
+   * gives a restrained pitch nudge and controls brightness. `resonance`
+   * only nudges Drop slightly longer -- it should never become sustained.
    */
-  playDrop(midi: number, ny: number, pan: number): void {
-    const scale = this.beginVoice("drop", 0.35);
-    if (scale === null) return;
+  playDrop(midi: number, ny: number, pan: number, resonance: number): void {
+    const stretch = this.durationScale("drop", resonance);
     const { ctx } = this.ensure();
     const freq = midiToFreq(midi);
     const now = ctx.currentTime;
+    const decay = 0.22 * stretch;
+    const stopAt = 0.3 * stretch;
+
+    const scale = this.beginVoice("drop", stopAt + 0.05);
+    if (scale === null) return;
     const peak = 0.22 * scale;
 
     const osc = ctx.createOscillator();
@@ -291,25 +338,32 @@ export class AudioEngine {
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, now);
     g.gain.linearRampToValueAtTime(peak, now + 0.006);
-    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + decay);
 
     osc.connect(filter).connect(g);
     osc.start(now);
-    osc.stop(now + 0.3);
-    this.output(g, pan, 0.16);
+    osc.stop(now + stopAt);
+    this.output(g, pan, 0.16 + resonance * 0.08);
   }
 
   /**
    * Deep Synth -- deep, warm, atmospheric. Soft attack into sustained
    * resonance and a slow fade -- deliberately no percussive "BOOM". Provides
-   * the low-frequency floor under everything else.
+   * the low-frequency floor under everything else. A longer hold both
+   * stretches the tail and slows the filter's own sweep, so a fully-held
+   * Deep Synth breathes more slowly as well as lasting longer.
    */
-  playDeep(midi: number, pan: number): void {
-    const scale = this.beginVoice("deep", 7.4);
-    if (scale === null) return;
+  playDeep(midi: number, pan: number, resonance: number): void {
+    const stretch = this.durationScale("deep", resonance);
     const { ctx } = this.ensure();
     const freq = midiToFreq(midi);
     const now = ctx.currentTime;
+    const attack = 0.6 + resonance * 0.5;
+    const decayTime = 7.0 * stretch;
+    const stopAt = 7.2 * stretch;
+
+    const scale = this.beginVoice("deep", stopAt);
+    if (scale === null) return;
     const peak = 0.27 * scale;
 
     const osc1 = ctx.createOscillator();
@@ -330,7 +384,7 @@ export class AudioEngine {
 
     const lfo = ctx.createOscillator();
     lfo.type = "sine";
-    lfo.frequency.value = 0.15;
+    lfo.frequency.value = 0.15 - resonance * 0.07; // slower sweep the longer it's held
     const lfoGain = ctx.createGain();
     lfoGain.gain.value = freq * 0.7;
     lfo.connect(lfoGain).connect(filter.frequency);
@@ -338,29 +392,33 @@ export class AudioEngine {
     sum.connect(filter);
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, now);
-    g.gain.linearRampToValueAtTime(peak, now + 0.6);
-    g.gain.exponentialRampToValueAtTime(0.0001, now + 7.0);
+    g.gain.linearRampToValueAtTime(peak, now + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + decayTime);
     filter.connect(g);
 
     osc1.start(now);
     osc2.start(now);
     lfo.start(now);
-    osc1.stop(now + 7.2);
-    osc2.stop(now + 7.2);
-    lfo.stop(now + 7.2);
-    this.output(g, pan, 0.38);
+    osc1.stop(now + stopAt);
+    osc2.stop(now + stopAt);
+    lfo.stop(now + stopAt);
+    this.output(g, pan, 0.38 + resonance * 0.2);
   }
 
   /**
    * Metal -- a distant resonant plate, not a clang. Soft attack, long,
-   * inharmonic decay, occupying the space between Bell/Crystal and Deep Synth.
+   * inharmonic decay, occupying the space between Bell/Crystal and Deep
+   * Synth. `resonance` stretches every partial's decay by the same ratio,
+   * so the inharmonic character holds together at any hold length.
    */
-  playMetal(midi: number, pan: number): void {
-    const scale = this.beginVoice("metal", 5.0);
-    if (scale === null) return;
+  playMetal(midi: number, pan: number, resonance: number): void {
+    const stretch = this.durationScale("metal", resonance);
     const { ctx } = this.ensure();
     const freq = midiToFreq(midi);
     const now = ctx.currentTime;
+
+    const scale = this.beginVoice("metal", 3.4 * stretch + 0.2);
+    if (scale === null) return;
     const peak = 0.2 * scale;
 
     const sum = ctx.createGain();
@@ -369,7 +427,7 @@ export class AudioEngine {
       const osc = ctx.createOscillator();
       osc.type = "triangle";
       osc.frequency.setValueAtTime(freq * ratio, now);
-      const decay = 3.4 / Math.sqrt(ratio);
+      const decay = (3.4 / Math.sqrt(ratio)) * stretch;
       const g = ctx.createGain();
       g.gain.setValueAtTime(0, now);
       g.gain.linearRampToValueAtTime((peak / ratios.length / Math.sqrt(ratio)) * 3, now + 0.08);
@@ -384,20 +442,30 @@ export class AudioEngine {
     filter.frequency.value = freq * 1.6;
     filter.Q.value = 1.2;
     sum.connect(filter);
-    this.output(filter, pan, 0.5);
+    this.output(filter, pan, 0.5 + resonance * 0.15);
   }
 
   /**
    * Shimmer -- light, airy, high, slowly emerging, long tail. No percussive
    * attack: more like light becoming audible. Used sparingly (tight
    * per-brush voice cap) so it adds space rather than crowding the mix.
+   * `resonance` slows the emergence as well as lengthening the tail, so a
+   * fully-held Shimmer feels like it's arriving from further away.
    */
-  playShimmer(midi: number, pan: number): void {
-    const scale = this.beginVoice("shimmer", 5.8);
-    if (scale === null) return;
+  playShimmer(midi: number, pan: number, resonance: number): void {
+    const stretch = this.durationScale("shimmer", resonance);
     const { ctx } = this.ensure();
     const freq = midiToFreq(midi);
     const now = ctx.currentTime;
+    const noiseAttack = 1.3 * stretch;
+    const noiseDecay = 5.4 * stretch;
+    const noiseStop = 5.5 * stretch;
+    const oscAttack = 1.0 * stretch;
+    const oscDecay = 4.9 * stretch;
+    const oscStop = 5.1 * stretch;
+
+    const scale = this.beginVoice("shimmer", noiseStop);
+    if (scale === null) return;
     const peak = 0.13 * scale;
 
     const noise = ctx.createBufferSource();
@@ -409,8 +477,8 @@ export class AudioEngine {
     bandpass.Q.value = 6;
     const noiseGain = ctx.createGain();
     noiseGain.gain.setValueAtTime(0.0001, now);
-    noiseGain.gain.linearRampToValueAtTime(peak, now + 1.3);
-    noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + 5.4);
+    noiseGain.gain.linearRampToValueAtTime(peak, now + noiseAttack);
+    noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + noiseDecay);
     noise.connect(bandpass).connect(noiseGain);
 
     const osc = ctx.createOscillator();
@@ -418,8 +486,8 @@ export class AudioEngine {
     osc.frequency.setValueAtTime(freq, now);
     const oscGain = ctx.createGain();
     oscGain.gain.setValueAtTime(0.0001, now);
-    oscGain.gain.linearRampToValueAtTime(peak * 0.6, now + 1.0);
-    oscGain.gain.exponentialRampToValueAtTime(0.0001, now + 4.9);
+    oscGain.gain.linearRampToValueAtTime(peak * 0.6, now + oscAttack);
+    oscGain.gain.exponentialRampToValueAtTime(0.0001, now + oscDecay);
     osc.connect(oscGain);
 
     const sum = ctx.createGain();
@@ -427,9 +495,9 @@ export class AudioEngine {
     oscGain.connect(sum);
 
     noise.start(now);
-    noise.stop(now + 5.5);
+    noise.stop(now + noiseStop);
     osc.start(now);
-    osc.stop(now + 5.1);
-    this.output(sum, pan, 0.6);
+    osc.stop(now + oscStop);
+    this.output(sum, pan, 0.6 + resonance * 0.15);
   }
 }
