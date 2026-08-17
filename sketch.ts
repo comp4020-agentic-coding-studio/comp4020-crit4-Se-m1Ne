@@ -22,6 +22,17 @@ const BRUSH_COLOR: Record<BrushType, string> = {
   grain: "255, 150, 110",
 };
 
+// Static concentric guides behind everything else, centred on the loop
+// origin, so distance-from-centre (the loop's own timing) is legible before
+// anything moves. Kept far dimmer than any ripple or mark.
+const RING_COUNT = 6;
+const RING_INNER_COLOR: [number, number, number] = [55, 65, 95];
+const RING_OUTER_COLOR: [number, number, number] = [100, 110, 150];
+
+// A frame delta larger than this (tab backgrounded, debugger pause) is
+// clamped so a single stalled frame can't fling a ripple across the canvas.
+const MAX_FRAME_DT = 0.25;
+
 function clamp01(v: number): number {
   return Math.min(1, Math.max(0, v));
 }
@@ -34,6 +45,12 @@ interface DragState {
   startX: number;
   startY: number;
   movedPast: boolean;
+}
+
+interface EraseFlash {
+  x: number;
+  y: number;
+  until: number;
 }
 
 export class SoundCanvas {
@@ -58,10 +75,16 @@ export class SoundCanvas {
   private strokePointerId: number | null = null;
   private strokeLast: { nx: number; ny: number } | null = null;
 
+  private eraseFlashes: EraseFlash[] = [];
+
+  private paused = false;
+  private lastTickTime = 0;
+
   constructor(
     private canvas: HTMLCanvasElement,
     private paletteButtons: NodeListOf<HTMLButtonElement>,
     private tempoSlider: HTMLInputElement,
+    private pauseButton: HTMLButtonElement,
   ) {
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("2D canvas context unavailable");
@@ -70,13 +93,14 @@ export class SoundCanvas {
     this.resize();
     window.addEventListener("resize", () => this.resize());
 
-    this.loopRipple = this.makeRipple(this.width / 2, this.height / 2, "loop", performance.now());
+    this.loopRipple = this.makeRipple(this.width / 2, this.height / 2, "loop");
     this.seedStarterMarks();
 
     this.bindPointer();
     this.bindKeyboard();
     this.bindPalette();
     this.bindTempo();
+    this.bindPause();
 
     requestAnimationFrame((t) => this.tick(t));
   }
@@ -156,12 +180,11 @@ export class SoundCanvas {
     return { id: nextId++, nx, ny, brush, seed: Math.random(), pulseUntil: 0 };
   }
 
-  private makeRipple(x: number, y: number, kind: "loop" | "single", now: number): Ripple {
+  private makeRipple(x: number, y: number, kind: "loop" | "single"): Ripple {
     return {
       id: nextId++,
       originPxX: x,
       originPxY: y,
-      startTime: now,
       kind,
       triggered: new Set(),
       prevRadius: -1,
@@ -170,7 +193,7 @@ export class SoundCanvas {
   }
 
   private spawnSingleRipple(x: number, y: number): void {
-    this.singleRipples.push(this.makeRipple(x, y, "single", performance.now()));
+    this.singleRipples.push(this.makeRipple(x, y, "single"));
   }
 
   // --- input ----------------------------------------------------------------
@@ -197,6 +220,13 @@ export class SoundCanvas {
       return;
     }
 
+    if (this.mode.kind === "erase") {
+      this.strokePointerId = e.pointerId;
+      this.canvas.setPointerCapture(e.pointerId);
+      this.eraseNear(x, y);
+      return;
+    }
+
     const hit = this.findMarkNear(x, y);
     if (hit) {
       this.selectedMarkId = hit.id;
@@ -220,6 +250,11 @@ export class SoundCanvas {
         this.marks.push(this.makeMark(nx, ny, this.mode.brush));
         this.strokeLast = { nx, ny };
       }
+      return;
+    }
+
+    if (this.mode.kind === "erase" && this.strokePointerId === e.pointerId) {
+      this.eraseNear(x, y);
       return;
     }
 
@@ -269,6 +304,9 @@ export class SoundCanvas {
         case "4":
           this.setMode({ kind: "brush", brush: "grain" });
           break;
+        case "5":
+          this.setMode({ kind: "erase" });
+          break;
         case "Delete":
         case "Backspace":
           if (this.selectedMarkId !== null) {
@@ -288,6 +326,10 @@ export class SoundCanvas {
   private bindPalette(): void {
     for (const btn of this.paletteButtons) {
       btn.addEventListener("click", () => {
+        if (btn.dataset.tool === "eraser") {
+          this.setMode(this.mode.kind === "erase" ? { kind: "play" } : { kind: "erase" });
+          return;
+        }
         const brush = btn.dataset.brush as BrushType | undefined;
         if (!brush) return;
         if (this.mode.kind === "brush" && this.mode.brush === brush) {
@@ -302,11 +344,14 @@ export class SoundCanvas {
   private setMode(mode: Mode): void {
     this.mode = mode;
     for (const btn of this.paletteButtons) {
-      const active = mode.kind === "brush" && btn.dataset.brush === mode.brush;
+      const active =
+        btn.dataset.tool === "eraser"
+          ? mode.kind === "erase"
+          : mode.kind === "brush" && btn.dataset.brush === mode.brush;
       btn.classList.toggle("active", active);
       btn.setAttribute("aria-pressed", String(active));
     }
-    this.canvas.classList.toggle("brush-mode", mode.kind === "brush");
+    this.canvas.classList.toggle("brush-mode", mode.kind === "brush" || mode.kind === "erase");
     this.selectedMarkId = null;
   }
 
@@ -318,6 +363,18 @@ export class SoundCanvas {
     };
     apply();
     this.tempoSlider.addEventListener("input", apply);
+  }
+
+  private bindPause(): void {
+    this.pauseButton.addEventListener("click", () => {
+      this.paused = !this.paused;
+      this.pauseButton.classList.toggle("paused", this.paused);
+      this.pauseButton.setAttribute("aria-pressed", String(this.paused));
+      this.pauseButton.setAttribute(
+        "aria-label",
+        this.paused ? "Resume automatic loop" : "Pause automatic loop",
+      );
+    });
   }
 
   // --- simulation -------------------------------------------------------------
@@ -342,6 +399,19 @@ export class SoundCanvas {
     }
   }
 
+  private eraseNear(px: number, py: number): void {
+    const hit = this.findMarkNear(px, py);
+    if (!hit) return;
+    const p = this.toPixel(hit.nx, hit.ny);
+    this.marks = this.marks.filter((m) => m.id !== hit.id);
+    if (this.selectedMarkId === hit.id) this.selectedMarkId = null;
+    // Belt-and-braces: a removed mark can't be found by checkCollisions once
+    // it's out of `marks`, but drop any stale trigger record too.
+    this.loopRipple.triggered.delete(hit.id);
+    for (const ripple of this.singleRipples) ripple.triggered.delete(hit.id);
+    this.eraseFlashes.push({ x: p.x, y: p.y, until: performance.now() + PULSE_MS });
+  }
+
   private checkCollisions(ripple: Ripple, from: number, to: number, now: number): void {
     if (to <= from) return;
     for (const mark of this.marks) {
@@ -355,14 +425,19 @@ export class SoundCanvas {
     }
   }
 
-  private updateLoopRipple(now: number): void {
+  // Radius grows by `dt * speed` each frame, rather than from an absolute
+  // elapsed-since-start calculation, so a tempo change takes effect from the
+  // ripple's current position instead of snapping the radius to wherever the
+  // new speed "would have" put it since the loop started. This is also what
+  // makes pause a matter of skipping the growth step for one ripple only.
+  private updateLoopRipple(dt: number, now: number): void {
+    if (this.paused) return;
     const speed = this.loopSpeedPxPerSec();
     const maxRadius = this.maxRadiusFromCenter();
-    const radius = ((now - this.loopRipple.startTime) / 1000) * speed;
+    const radius = this.loopRipple.radius + dt * speed;
 
     if (radius > maxRadius) {
       this.checkCollisions(this.loopRipple, this.loopRipple.prevRadius, maxRadius, now);
-      this.loopRipple.startTime = now;
       this.loopRipple.originPxX = this.width / 2;
       this.loopRipple.originPxY = this.height / 2;
       this.loopRipple.triggered.clear();
@@ -376,10 +451,10 @@ export class SoundCanvas {
     this.loopRipple.radius = radius;
   }
 
-  private updateSingleRipple(ripple: Ripple, now: number): boolean {
+  private updateSingleRipple(ripple: Ripple, dt: number, now: number): boolean {
     const speed = this.loopSpeedPxPerSec();
     const maxRadius = this.maxRadiusFromPoint(ripple.originPxX, ripple.originPxY);
-    const radius = Math.min(((now - ripple.startTime) / 1000) * speed, maxRadius);
+    const radius = Math.min(ripple.radius + dt * speed, maxRadius);
     this.checkCollisions(ripple, ripple.prevRadius, radius, now);
     ripple.prevRadius = radius;
     ripple.radius = radius;
@@ -387,8 +462,15 @@ export class SoundCanvas {
   }
 
   private tick(now: number): void {
-    this.updateLoopRipple(now);
-    this.singleRipples = this.singleRipples.filter((r) => this.updateSingleRipple(r, now));
+    const dt = this.lastTickTime === 0 ? 0 : Math.min(MAX_FRAME_DT, Math.max(0, (now - this.lastTickTime) / 1000));
+    this.lastTickTime = now;
+
+    // Single ripples keep running even while the automatic loop is paused --
+    // pause silences the composition, not the instrument.
+    this.updateLoopRipple(dt, now);
+    this.singleRipples = this.singleRipples.filter((r) => this.updateSingleRipple(r, dt, now));
+    this.eraseFlashes = this.eraseFlashes.filter((f) => f.until > now);
+
     this.render(now);
     requestAnimationFrame((t) => this.tick(t));
   }
@@ -412,6 +494,7 @@ export class SoundCanvas {
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, width, height);
 
+    this.drawBackgroundRings();
     this.drawCenter();
     this.drawRipple(this.loopRipple, this.maxRadiusFromCenter());
     for (const r of this.singleRipples) {
@@ -420,6 +503,51 @@ export class SoundCanvas {
     for (const mark of this.marks) {
       this.drawMark(mark, now);
     }
+    for (const flash of this.eraseFlashes) {
+      this.drawEraseFlash(flash, now);
+    }
+  }
+
+  // Stationary rings sharing the loop's own centre and reach, so the loop's
+  // radial timing has a always-visible reference even before a ripple has
+  // passed through. Kept far dimmer than a mark or ripple - this is a guide,
+  // not a target.
+  private drawBackgroundRings(): void {
+    const ctx = this.ctx2d;
+    const cx = this.width / 2;
+    const cy = this.height / 2;
+    const maxRadius = this.maxRadiusFromCenter();
+
+    ctx.save();
+    for (let i = 1; i <= RING_COUNT; i++) {
+      const t = i / RING_COUNT;
+      const radius = maxRadius * t;
+      const [r0, g0, b0] = RING_INNER_COLOR;
+      const [r1, g1, b1] = RING_OUTER_COLOR;
+      const r = Math.round(r0 + (r1 - r0) * t);
+      const g = Math.round(g0 + (g1 - g0) * t);
+      const b = Math.round(b0 + (b1 - b0) * t);
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.09)`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  private drawEraseFlash(flash: EraseFlash, now: number): void {
+    const t = (flash.until - now) / PULSE_MS;
+    if (t <= 0) return;
+    const ctx = this.ctx2d;
+    const r = 6 + (1 - t) * 20;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(flash.x, flash.y, r, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255, 255, 255, ${(t * 0.45).toFixed(3)})`;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
   }
 
   private drawCenter(): void {

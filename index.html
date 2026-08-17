@@ -23,12 +23,21 @@
         aria-label="Sound canvas. Tap or click anywhere to send out a ripple of sound."
       ></canvas>
 
-      <div class="tempo" role="group" aria-label="Tempo">
+      <div class="transport" role="group" aria-label="Transport">
+        <button
+          type="button"
+          id="pause-btn"
+          class="pause-btn"
+          aria-pressed="false"
+          aria-label="Pause automatic loop"
+        >
+          <span class="pause-icon" aria-hidden="true"></span>
+        </button>
         <label for="tempo-slider" class="sr-only">Tempo</label>
-        <input id="tempo-slider" type="range" min="0" max="100" value="45" />
+        <input id="tempo-slider" type="range" min="0" max="100" value="25" />
       </div>
 
-      <div class="palette" role="group" aria-label="Sound brushes">
+      <div class="palette" role="group" aria-label="Sound brushes and tools">
         <button
           type="button"
           class="brush-btn brush-glow"
@@ -62,6 +71,15 @@
           data-brush="grain"
           aria-pressed="false"
           aria-label="Grain brush: percussion sound"
+        >
+          <span class="brush-icon" aria-hidden="true"></span>
+        </button>
+        <button
+          type="button"
+          class="brush-btn tool-eraser"
+          data-tool="eraser"
+          aria-pressed="false"
+          aria-label="Eraser: remove a painted sound"
         >
           <span class="brush-icon" aria-hidden="true"></span>
         </button>

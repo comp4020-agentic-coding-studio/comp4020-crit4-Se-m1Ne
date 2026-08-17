@@ -19,7 +19,6 @@ export interface Ripple {
   id: number;
   originPxX: number;
   originPxY: number;
-  startTime: number;
   kind: "loop" | "single";
   /** Mark ids this ripple has already triggered, so each mark fires once per ripple. */
   triggered: Set<number>;
@@ -27,4 +26,4 @@ export interface Ripple {
   radius: number;
 }
 
-export type Mode = { kind: "play" } | { kind: "brush"; brush: BrushType };
+export type Mode = { kind: "play" } | { kind: "brush"; brush: BrushType } | { kind: "erase" };

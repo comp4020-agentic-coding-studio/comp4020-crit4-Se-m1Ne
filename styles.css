@@ -46,23 +46,92 @@ main {
   cursor: cell;
 }
 
-.tempo {
+.transport {
   position: fixed;
   top: max(1rem, env(safe-area-inset-top));
   right: max(1rem, env(safe-area-inset-right));
   z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
 }
 
-.tempo input[type="range"] {
+.transport input[type="range"] {
   width: 7rem;
   accent-color: rgb(180 200 255 / 85%);
   opacity: 0.55;
   transition: opacity 0.2s ease;
 }
 
-.tempo input[type="range"]:hover,
-.tempo input[type="range"]:focus-visible {
+.transport input[type="range"]:hover,
+.transport input[type="range"]:focus-visible {
   opacity: 1;
+}
+
+.pause-btn {
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 50%;
+  border: 1px solid rgb(255 255 255 / 12%);
+  background: rgb(255 255 255 / 4%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0.55;
+  transition:
+    opacity 0.2s ease,
+    border-color 0.15s ease;
+}
+
+.pause-btn:hover,
+.pause-btn:focus-visible {
+  opacity: 1;
+}
+
+.pause-btn.paused {
+  border-color: rgb(255 255 255 / 40%);
+}
+
+.pause-icon {
+  position: relative;
+  display: block;
+  width: 0.7rem;
+  height: 0.9rem;
+}
+
+.pause-icon::before,
+.pause-icon::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0.22rem;
+  background: rgb(230 230 245 / 90%);
+  border-radius: 1px;
+  transition: opacity 0.15s ease;
+}
+
+.pause-icon::before {
+  left: 0;
+}
+
+.pause-icon::after {
+  right: 0;
+}
+
+.pause-btn.paused .pause-icon::before,
+.pause-btn.paused .pause-icon::after {
+  opacity: 0;
+}
+
+.pause-btn.paused .pause-icon {
+  width: 0;
+  height: 0;
+  border-top: 0.45rem solid transparent;
+  border-bottom: 0.45rem solid transparent;
+  border-left: 0.7rem solid rgb(230 230 245 / 90%);
 }
 
 .palette {
@@ -141,6 +210,32 @@ main {
     radial-gradient(circle at 75% 75%, rgb(255 150 110 / 90%) 0 1.5px, transparent 1.5px);
 }
 
+.tool-eraser .brush-icon {
+  position: relative;
+  width: 1.3rem;
+  height: 1.3rem;
+}
+
+.tool-eraser .brush-icon::before,
+.tool-eraser .brush-icon::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1.2rem;
+  height: 0.16rem;
+  background: rgb(215 215 225 / 75%);
+  border-radius: 2px;
+}
+
+.tool-eraser .brush-icon::before {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.tool-eraser .brush-icon::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
 @media (width <= 30rem) {
   .brush-btn {
     width: 2.6rem;
@@ -149,5 +244,9 @@ main {
 
   .palette {
     gap: 0.4rem;
+  }
+
+  .transport input[type="range"] {
+    width: 5rem;
   }
 }
