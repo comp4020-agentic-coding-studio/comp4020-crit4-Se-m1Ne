@@ -2,347 +2,155 @@
 
 The course site's
 [assessment page](https://comp.anu.edu.au/courses/comp4020-agentic-coding-studio/topics/assessment/#what-you-submit)
-is the requirement; this file is a map to how the work got there.
+is the requirement. This file records how the work developed and changed.
 
 ## What I built
 
-**DREAMWASH**: a full-screen instrument where you paint marks onto a dark
-canvas and a looping ripple, expanding outward from the centre, plays whatever
-it touches --- distance from the centre is time in the loop, so the ripple
-itself is the sequencer. Clicking or tapping anywhere also sends out an
-independent one-shot ripple from that exact point, for live playing on top of
-the loop. Eight sound brushes (Bell, Glass, Soft Pluck, Bloom, Haze, Deep, Shimmer,
-Veil), each with its own Web-Audio synthesis and its own visual shape, form
-one coherent dream-pop palette --- short bright textures, slowly-blooming
-pads, and a soft, deep low end all sharing the same hidden harmonic world and
-a shared, selectively-applied reverb and delay; vertical position sets pitch
-(quantised to a shared pentatonic scale, with each brush given its own
-register, so nothing plays a "wrong" note) or, for Soft Pluck, brightness.
-There's no tutorial, start button, or score
---- the first click both unlocks audio and triggers the pre-placed starter
-marks, so sound happens before any UI is read.
+**DREAMWASH** is a full-screen browser instrument. The player paints sound marks onto a dark canvas, and a ripple expands from the centre to play the marks it touches.
+Distance from the centre controls when a sound plays in the loop, so the ripple acts as the sequencer.
+The player can also click or tap anywhere to create a one-shot ripple from that point. This lets the player perform over the automatic loop.
+The final sound palette has eight brushes: Bell, Glass, Soft Pluck, Bloom, Haze, Deep, Shimmer, and Veil. They use Web Audio synthesis and share the same dream-pop sound direction. Vertical position controls pitch for most brushes, using a hidden pentatonic scale so free drawing still stays musical.
+The instrument has no score or fail state. The opening is also minimal: the first touch unlocks audio, creates the first ripple, and opens the canvas.
 
-## The moments that mattered
+## 1. Ripple playback instead of a normal timeline
 
-1. **Ripple-as-sequencer instead of a linear timeline.** The brief asked for a
-   central looping ripple where "distance from centre = time in the loop," but
-   the obvious implementation path for a browser instrument is a linear
-   playhead (a `requestAnimationFrame` loop advancing a `t` variable left to
-   right) with marks laid out on a timeline, because that's the pattern every
-   step-sequencer tutorial uses. I built the radial version instead --- a
-   `Ripple` with a growing `radius`, and a per-frame collision check
-   `dist > prevRadius && dist <= radius` against every mark's distance from
-   the centre --- because a timeline would have turned the canvas into a
-   scrolling piano roll, which is exactly the DAW-like look the brief says to
-   avoid. I checked it was right by watching the built page in a headless
-   browser: the loop ripple visibly expands as a circle, marks pulse as the
-   ring passes through them, and the loop resets and re-triggers cleanly on
-   each pass
-   ([`f23253d`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-Se-m1Ne/commit/f23253d)).
+The first important decision was to avoid a normal left-to-right sequencer.
+A normal timeline would have been easier to build, but it would also make the project look like a piano roll or a small DAW. I wanted the canvas itself to control time.
+Instead, the automatic playback starts from the centre and expands outward. A sound plays when the ripple reaches it. This means distance from the centre becomes time.
+I also reused the same idea for live playing. A click or tap creates another ripple from that exact point, so the same group of sounds can play in a different order depending on where the player touches.
+This became the main interaction of the project.
 
-2. **All four brushes from the start, against the staged plan.** The brief's
-   own "development priority" section stages the palette in --- Stage 1 with
-   only two melodic voices and one percussion type, full palette deferred to
-   Stage 2. I built all four (Glow, Spark, Ink, Grain) together instead,
-   because the brief also asks for a cold open with no onboarding: a palette
-   that starts with one button and grows over the session would need some way
-   to *tell* the player new brushes exist, which is itself a small onboarding
-   problem the brief is trying to avoid. Shipping the full, visually-distinct
-   palette from the first frame means what you see on load is what the
-   instrument actually is. I checked this against the "no wrong way to play"
-   requirement by seeding three starter marks (one Glow, one Spark, one
-   Grain) so the very first loop pass already demonstrates more than one
-   voice without any input at all
-   ([`f23253d`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-Se-m1Ne/commit/f23253d)).
+Relevant commit:
 
-3. **A tsconfig gap that would have made a whole module invisible to
-   typecheck.** `tsconfig.json`'s `include` is `["*.ts", "spec"]` --- only
-   top-level `.ts` files, not anything in a subdirectory. My first instinct
-   was a `src/` folder for `sketch.ts`, `audio.ts`, and `scale.ts`, which
-   `tsc --noEmit` would have silently skipped: `pnpm check` would stay green
-   no matter what type errors were in there. Rather than just moving the
-   files and moving on, I wrote the constraint into `CLAUDE.md` so the next
-   session (or the next file I add) doesn't rediscover it the same way ---
-   the fix that matters is the one that stops the same mistake from being
-   possible again, not the one that stops it happening once
-   ([`a99b0e2`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-Se-m1Ne/commit/a99b0e2)).
+[`f23253d`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-Se-m1Ne/commit/f23253d) — Build the Sound Canvas: radial ripples, four sound brushes, live synthesis
 
-4. **Stylelint's modern-CSS rules caught a whole file's worth of legacy
-   syntax before it ever reached a commit.** `styles.css` used `rgba(r,g,b,a)`
-   throughout, plus `max-width` media queries and a deprecated `clip`
-   property --- all valid CSS, all rejected by `stylelint-config-standard`
-   (56 errors). `--fix` handled the color functions and the media-query range
-   syntax automatically; `clip` had to be hand-converted to `clip-path:
-   inset(50%)`. I verified by re-running `pnpm check` until lint was clean,
-   then added the specific notation this config expects to `CLAUDE.md` so a
-   future edit to `styles.css` doesn't reintroduce the same 56 errors one at
-   a time
-   ([`a99b0e2`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-Se-m1Ne/commit/a99b0e2)).
+## 2. Making the canvas easier to use
 
-## A refinement pass
+Once the main interaction worked, I made several small changes to improve control.
+The first loop speed felt too slow, so I increased the default speed. I also added an eraser, pause control, and subtle concentric rings.
+The rings give the player a visual guide for distance from the centre, which also means timing.
+Later, I added Clear Canvas with a confirmation step. This was useful because deleting many marks one by one became slow once the canvas was crowded.
+These changes made experimentation easier without adding a correct or incorrect way to play.
 
-Once the instrument was playable, four small changes made it easier to
-actually use and to compose with, without touching its concept, layout, or
-art direction
-([`1f23fe4`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-Se-m1Ne/commit/1f23fe4)):
+Relevant commits:
 
-- **A quicker default tempo**, so the loop has some life to it on first load
-  instead of needing the slider touched before the instrument feels
-  responsive.
-- **An eraser**, because painting sound marks with no way to remove one
-  turns every misplaced click into a permanent addition --- reversibility
-  matters as much for sound as it does for a brush stroke.
-- **Pause**, for composition and manual performance: stopping the automatic
-  loop so a player can arrange marks without them being triggered mid-edit,
-  while one-shot ripples from clicks stay live so pausing doesn't mean
-  going silent.
-- **Subtle concentric background rings**, so distance-from-centre --- the
-  loop's own timing --- has a visible reference even before a ripple has
-  swept past, without the rings themselves looking like a technical
-  overlay.
+[`1f23fe4`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-Se-m1Ne/commit/1f23fe4) — Refine Sound Canvas: quicker default tempo, eraser, pause, background rings
 
-Switching the ripple's radius from an absolute-elapsed-time calculation to
-per-frame delta-time accumulation was the one internal change needed to
-support two of these cleanly: a live tempo change no longer has to
-retroactively correct for time already elapsed at the old speed, and pausing
-is just skipping that frame's growth for the loop ripple only --- both come
-for free instead of needing separate special-casing.
+[`51d8c7a`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-Se-m1Ne/commit/51d8c7a) — Add Clear Canvas with confirmation, brighten background rings
 
-## A second refinement pass
+## 3. Listening changed the sound direction
 
-Two more changes, again without touching the instrument's concept, layout, or
-art direction:
+The biggest changes came from listening rather than from automated tests.
+The first sound palette worked technically, but the sounds felt separate. A crowded area sounded like many small notes being triggered one after another instead of one musical texture.
+I first changed the palette toward a more coherent cosmic sound. I kept drawing and Y-position pitch control, but used longer sounds, wider pitch ranges, and more shared reverb.
+This helped, but a second listening pass showed another problem. Some sounds became too much like science-fiction or game sound effects. One short sound in particular had a "biu" or "pew" character.
+I then changed the target again, from general "cosmic" audio to a more specific dream-pop / ethereal sound:
 
-- **Clear Canvas, with a confirmation step.** Individual erasing becomes
-  inefficient once a composition contains many sound marks --- clearing a
-  crowded canvas one mark at a time isn't a real workflow. A confirmation
-  step was added because clearing is destructive and should not happen
-  accidentally: the button first arms into a compact "Clear all? /
-  Confirm / Cancel" row rather than clearing on the first click, reverts on
-  Cancel, on a click anywhere outside the control, or automatically after
-  five seconds of inactivity, and leaves tempo, pause state, and the active
-  brush untouched.
-- **More visible concentric guides.** The previous six rings at a flat, near-
-  invisible opacity were too subtle to actually communicate radial
-  distance --- players couldn't use them to judge timing before a ripple
-  swept past. Increasing the count to ten and graduating the opacity from
-  centre to edge makes them quietly noticeable without turning them into a
-  technical overlay; they stay well below the brightness of any mark or
-  ripple, so the background --- guides --- marks --- ripples hierarchy holds.
+- light
+- distant
+- hazy
+- soft
+- washed-out
+- floating
+- warm
+- slightly psychedelic
 
-Verifying the Clear Canvas confirmation surfaced a real bug, not just a
-missing feature: the confirm row and its trigger button used `hidden` for
-visibility, but `.clear-confirm { display: flex }` had the same specificity
-as the browser's own `[hidden] { display: none }` rule and won on source
-order, so the confirm row rendered on every page load regardless of the
-attribute. A parallel bug turned up in the existing erase-flash animation
-while re-testing the eraser: its fade fraction wasn't clamped, and a rAF
-timestamp landing a fraction of a millisecond behind the `performance.now()`
-deadline that scheduled the flash was enough to push a circle's radius
-negative, which throws inside `CanvasRenderingContext2D.arc` --- and because
-that throw happens before the loop's own `requestAnimationFrame` call, it
-would have silently frozen the entire instrument on an unlucky frame. Both
-were caught by console-error monitoring during Playwright verification
-rather than by any visual check, which is the reason that verification step
-stayed in the process even for a change that looked purely cosmetic.
+Bell and the long low Synth direction were kept. Game-like short sounds were removed or rebuilt.
+The final palette became Bell, Glass, Soft Pluck, Bloom, Haze, Deep, Shimmer, and Veil.
+Short and long sounds were mixed on purpose. Bell and Soft Pluck give clear timing, while Bloom, Haze, Deep, Shimmer, and Veil create longer layers.
+Fade-in, fade-out, reverb, delay, and gentle detuning helped the sounds blend into one space instead of feeling like separate effects.
 
-## A sound redesign: what listening caught that the checks couldn't
+Relevant commits:
 
-The original palette (Glow, Spark, Ink, Grain) was built from fairly
-conventional pitched-synth and percussion sounds --- a bell-ish tone, a
-plucked tone, a bass tone, a percussive hit. It passed every check
-(`pnpm check` green, all brush/pitch tests passing) and looked correct on
-paper: four distinct brushes, a shared pentatonic scale, pitch mapped to
-Y-position. Actually listening to it revealed something the tests had no way
-to catch: the four sounds felt like separate instruments taking turns rather
-than one instrument, and a densely painted area sounded like scattered
-individual notes rather than a texture, because each sound was short,
-percussive, and rang out in isolation. Part of the problem was structural,
-not just timbral --- the ripple plays radially outward from the centre, not
-left-to-right, so the usual melodic expectations of a piano-roll style
-sequence (a phrase rising and falling in a fixed order) don't really apply
-here, and conventional pitched-synth voices were fighting a playback model
-that was never going to read as a tune.
+[`c4f9464`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-Se-m1Ne/commit/c4f9464) — Replace sound palette with a coherent cosmic soundscape
 
-The fix was not to remove drawing or pitch --- both stayed, because "the
-ripple plays what it touches" and "Y-position controls pitch" are the
-instrument's actual identity. Instead, the whole sound palette was replaced
-with six voices (Bell, Crystal, Drop, Deep Synth, Metal, Shimmer) designed
-together as one cosmic/resonant sound world rather than six independent
-instruments: every brush quantises through the same shared pentatonic anchor
-even though each has its own register, so a low Deep Synth drone and a high
-Shimmer texture still can't produce a clashing note; the old drum-like sounds
-(kick/snare-style hits) were removed entirely, since a drum kit was fighting
-the "cosmic" brief as much as the melodic ones were; and the Y-pitch range
-per brush was deliberately widened to two-to-three audible octaves so
-pitch still reads as expressive rather than decorative. Short and long
-sounds were then deliberately mixed and made to overlap --- Drop is
-short, Bell and Crystal are medium, Metal and Shimmer are long, Deep Synth
-is very long --- so a dense painted area rings and blends instead of
-chattering, and a shared, subtle reverb send was added across all six
-voices (plus a near-inaudible always-on ambient drone) so they read as six
-materials in one space rather than six unrelated samples glued together.
-The central loop's default speed was also slowed down, because a loop tuned
-for short, percussive sounds was retriggering marks faster than the new
-longer-decaying sounds could resonate --- manual one-shot ripples were kept
-at their original fast, unquantised speed, since those are for live
-playing, not the ambient background pulse.
+[`25a0a60`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-Se-m1Ne/commit/25a0a60) — Rebuild sound palette for a dream-pop/ethereal character
 
-None of this --- whether six sounds feel like one instrument, whether Metal
-reads as "resonant" rather than "industrial," whether the ambient layer is
-noticeable at all --- is something `pnpm check` or the spec tests can judge;
-they only confirm the brush set exists, the scale never goes out of range,
-and nothing throws. This redesign is an example of a change that had to be
-driven by actually listening to the built instrument, not by making the
-automated checks pass, and the checks staying green throughout is why they
-were treated as necessary but not sufficient here.
+## 4. Hold duration as another expressive control
 
-## Hold duration as a fourth expressive control
+I wanted duration to be controlled by the player's gesture rather than by another slider.
+A quick tap creates a shorter sound. Holding in one place creates a sound with more resonance and a longer duration. Dragging still paints multiple marks.
+Different brushes keep different natural ranges. For example, Soft Pluck stays fairly short, while Deep or Shimmer can become much longer.
+This means the player now shapes sound through:
 
-Painting a mark used to carry only three choices: which brush, where (pitch),
-and when. A hold gesture adds a fourth: how long that mark resonates when a
-ripple later touches it. Tapping paints a mark with its brush's usual, short
-character; holding the pointer still on that same spot grows its resonance
-continuously, up to a sensible per-brush maximum, and moving past a small
-tolerance switches back to ordinary stroke painting instead of accidentally
-stretching every dragged mark. The duration is never shown as a number --- a
-faint halo grows while holding, and the placed mark keeps a small permanent
-trace (one or two extra rings) of how resonant it was made, using the same
-visual language as the rest of the instrument. Each brush stretches within
-its own range rather than a single shared multiplier, so a fully-held Drop
-stays a short, delicate sound while a fully-held Deep Synth or Shimmer can
-become genuinely sustained --- the player is shaping not only timbre, pitch,
-and timing, but also how long each painted sound rings on.
+- brush choice
+- position
+- pitch
+- timing
+- duration
 
-## A second listening pass: from cosmic to dream-pop
+without needing normal music-editor controls.
 
-Listening to the six-voice cosmic palette (Bell, Crystal, Drop, Deep Synth,
-Metal, Shimmer) surfaced a second mismatch the checks had no way to catch.
-Visually, the cosmic direction worked --- the concentric rings, the dark
-canvas, the radial ripple all read as intended. Sonically, some of the short
-sounds didn't: Drop in particular swept its own oscillator pitch downward on
-a fast, sharp attack, which is the textbook synthesis recipe for a laser or
-"pew" sound effect, not a musical texture. Played on the canvas it sounded
-like triggering a sci-fi shooting effect, not painting a note --- a
-sci-fi-toy character that no amount of added reverb was going to fix, because
-the problem was the source timbre and envelope, not the space around it.
+Relevant commit:
 
-The goal was refined from a generic "cosmic ambient" sound world toward a
-more specific dream-pop / ethereal target: light, hazy, washed-out, floating,
-slightly psychedelic --- a texture you paint into, not a button you press.
-Bell and the sustained low Deep voice were both kept, since they already
-fit that target once retuned; everything with a game-like or sci-fi-effect
-character was removed or rebuilt. Drop's pitch-sweep was replaced entirely
-by Soft Pluck, which keeps the oscillator's pitch fixed and instead sweeps a
-lowpass filter's cutoff downward for articulation --- a filter envelope
-closing rather than a pitch bend, which is architecturally why it can no
-longer read as a laser no matter how it's mixed. Metal was dropped outright:
-its resonant-plate, inharmonic-partial design was squarely in the "hard
-metallic impact / industrial clang" territory the new direction explicitly
-ruled out, and nothing about softening its envelope was going to change what
-kind of sound it fundamentally was. The palette was expanded to eight voices
-(Bell, Glass, Soft Pluck, Bloom, Haze, Deep, Shimmer, Veil) with deliberately
-distinct sonic roles spanning short/foreground, medium/body, and long/
-atmosphere, rather than padding the count with near-duplicates.
+[`a7fdcfc`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-Se-m1Ne/commit/a7fdcfc) — Add hold-to-resonate: pointer hold duration controls sound length
 
-Fade-in/fade-out envelopes became a first-class part of the sound design
-rather than an afterthought: every voice now follows attack-body-release
-instead of an instant attack into an abrupt stop, so a ripple triggering a
-mark feels like it wakes the sound up rather than pressing a sound-effect
-button. Bloom's filter literally opens (sweeping up, then settling back
-down) to make its bloom audible; Haze, Bloom and Deep were given multiple
-slightly detuned oscillators summed together, turning a flat single-oscillator
-tone into a wider "wwaaaahhh" without drifting audibly out of tune. Long-press
-duration --- the fourth expressive control from the previous pass --- was
-re-integrated per brush rather than replaced: the same tap-vs-hold gesture
-now stretches each voice's own envelope by a different amount, so a fully-held
-Soft Pluck stays short and rhythmic while a fully-held Haze or Deep becomes
-genuinely sustained, keeping each brush's identity intact regardless of how
-long it's held. A shared, very subtle delay send was added alongside the
-existing reverb, but only on the voices that benefit from feeling distant
-(Bell, Glass, Bloom, Haze, Veil) rather than on all eight, since a delay on
-every voice would have blurred the short/long contrast the palette depends
-on. The always-on ambient drone was also rebuilt, since its previous single
-low tone read as a spaceship hum; it's now a quietly detuned three-oscillator
-bed plus a whisper-quiet high-passed air layer, low enough in gain that a
-player shouldn't consciously notice background music playing at all.
+## 5. Turning the audio restriction into the opening
 
-As with the first sound redesign, whether any of this actually sounds like a
-musical texture rather than a collection of space-effects is not something
-`pnpm check` can verify --- it only confirms eight brushes exist, register
-ranges stay in bounds, and nothing throws. This is another example of human
-listening correcting something automated tests cannot judge; the redesign
-is deliberately not treated as finished until it has actually been listened
-to on the built page.
+Browser autoplay rules meant the AudioContext could not reliably make sound before the user interacted.
+At first, this created an awkward result: the ripple looked active when the page opened, but there was no sound until the first click.
+Instead of adding a normal "Enable Audio" button, I turned that required click into part of the instrument.
+The page now starts with a simple cover. The first touch:
 
-## A wake cover: turning a browser constraint into part of the instrument
+- unlocks the AudioContext
+- creates the first real ripple
+- reveals the canvas from the touch position
+- fades in the ambient sound
+- starts the automatic loop
 
-Browser autoplay restrictions mean an `AudioContext` cannot start making sound
-until a real user gesture unlocks it. Without a deliberate opening, that shows
-up as a real usability problem: the automatic central loop was starting
-immediately on page load, so the canvas *looked* like it was already playing
---- the ripple visibly sweeping outward --- while the `AudioContext` sat
-silently suspended underneath, producing no sound at all until the first
-click. Rather than trying to route around that restriction (which isn't
-possible) or hiding it behind a conventional "click to enable audio" prompt
-(which would have reintroduced the onboarding chrome the brief explicitly
-rules out), the required first gesture was turned into the opening of the
-instrument itself.
+The cover also dissolves along the ripple instead of using a normal fade.
+This makes the first interaction feel like waking the sound space rather than starting an app.
 
-A minimal full-screen cover now sits in front of the canvas on load: the same
-dark background gradient and concentric rings as the canvas underneath, just
-the title and a small "touch to wake" hint, no button, no instructions. The
-player's first click or tap does five things in order --- unlock the
-`AudioContext`, spawn a real one-shot ripple from that exact point (through
-the same `spawnSingleRipple` used by every later click, not a special-cased
-"intro" ripple), open a circular hole in the cover that grows outward from
-that point over about a second, fade the always-on ambient drone and air
-layer in gradually rather than snapping them to their resting gain, and only
-then start the automatic central loop, which stays frozen at radius zero
-until that wake completes. Concretely: a new `awake` flag gates only
-`updateLoopRipple`'s existing guard (`if (this.paused || !this.awake)
-return`) --- distinct from the user-facing `paused` toggle --- and the cover's
-reveal is a JS-driven `mask-image: radial-gradient(...)` recomputed every
-frame from the click coordinates, chosen over a CSS transition because
-animating a mask radius smoothly across browsers would otherwise need
-`@property` custom-property registration. Because the reveal reuses the
-ordinary ripple/collision pipeline, a starter mark near the touch point plays
-normally mid-reveal, exactly as it would from any later click --- the first
-sound is real playing, not a sound effect glued onto a screen transition.
+Relevant commits:
 
-Keyboard and reduced-motion users are handled without a second implementation
-path grafted on: the cover is a `role="button"` `div` and the existing global
-Space handler already used to spawn a ripple from the last known pointer
-position, so adding an `Enter`/`Space`-before-wake branch that wakes from the
-canvas centre reused that listener rather than adding a new one; a
-`prefers-reduced-motion` check taken once on construction swaps the
-mask-growth animation for a plain, much shorter opacity fade, still gated by
-the same `wake()` entry point so audio unlocks identically either way.
-Verified against a Playwright smoke script (off-repo, per `CLAUDE.md`): the
-mask consistently anchors to the actual click/tap coordinates rather than the
-canvas centre, rapid re-clicking during the reveal cannot start a second wake
-(a single `wakeFired` boolean set synchronously on the first call is enough,
-since JS's single-threaded event dispatch means no two `pointerdown` handlers
-can race each other), Tab-then-Enter reaches and wakes the cover with the
-palette and transport controls correctly excluded from the tab order
-beforehand (`inert`, removed on wake), and every pre-existing interaction ---
-brush painting, hold-to-resonate, eraser, Clear Canvas, pause/resume, tempo
---- still behaves exactly as before once the instrument is awake.
+[`de58924`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-Se-m1Ne/commit/de58924) — Add a minimal wake cover so the first touch opens the instrument
 
-## A naming refinement: Sound Canvas becomes DREAMWASH
+[`0ff2c77`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-Se-m1Ne/commit/0ff2c77) — Dissolve the opening title along the wake ripple's wavefront
 
-The working title "Sound Canvas" described the mechanism clearly --- you paint
-onto a canvas, it makes sound --- but felt too functional for the direction
-the sound design had actually settled into. It was renamed to **DREAMWASH**,
-which better reflects the dream-pop sound direction, the washed-out
-reverb/delay texture the palette leans on, the dreamy visual atmosphere of the
-canvas itself, the ripple/wave behaviour the whole instrument is built around,
-and the soft blending of sound and light the opening reveal is meant to feel
-like. The opening hint was renamed to match: "touch to wake" became "touch to
-resonate", since "resonate" ties the first gesture to sound and resonance
-rather than just switching something on, and reads as more romantic and
-ethereal than "wake" did. Nothing about the opening's behaviour, layout, or
-animation changed --- only the two pieces of visible text naming it.
+## 6. Naming the piece DREAMWASH
+
+The working title **Sound Canvas** described the function, but it felt too plain for the final direction.
+I renamed the piece **DREAMWASH**.
+The name better matches the dream-pop sound, the washed-out reverb and delay, the soft visual style, and the wave behaviour of the instrument.
+The opening text also changed from **touch to wake** to **touch to resonate**, 
+because "resonate" connects more directly to sound and fits the softer, more romantic tone.
+
+Relevant commit:
+
+[`5c77fab`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-Se-m1Ne/commit/5c77fab) — Rename the opening from Sound Canvas to DREAMWASH
+
+## 7. Final correction by ear
+
+After the main sound redesign, Bell was still too loud.
+This was most obvious for high Bell notes near the top of the canvas. They were bright enough to feel sharp and slightly piercing.
+I did not reduce the whole master volume because the other brushes already sat well in the mix.
+Instead, I adjusted Bell only, lowering its level and softening the brightness of its higher notes.
+The high notes still sound clearly higher, but they now sit inside the soundscape instead of jumping out of it.
+
+Relevant commit:
+
+[`d358228`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-Se-m1Ne/commit/d358228) — Soften the Bell brush's volume and high-pitch brightness
+
+## Directing and correcting the agent
+
+The agent was useful for building and changing the implementation, but it could not judge whether the instrument actually sounded good.
+I gave more specific direction as problems appeared.
+For example:
+
+- the first version was redirected away from a normal sequencer
+- the first sound palette was changed after it sounded too separate
+- the cosmic version was changed again after it sounded too much like a game
+- the final Bell sound was adjusted after its high notes felt too sharp
+
+Automated checks were still useful for code quality and website requirements, but they could not judge:
+
+- whether the loop felt too slow
+- whether sounds belonged together
+- whether a sound felt too sharp
+- whether the result felt musical or game-like
+
+Those decisions came from repeatedly playing and listening to the instrument.
+The commit history records these corrections instead of making the final result look like it appeared in one step.
 
 ## Before you ship
 
