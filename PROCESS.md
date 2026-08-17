@@ -75,6 +75,35 @@ triggers the pre-placed starter marks, so sound happens before any UI is read.
    a time
    ([`a99b0e2`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-Se-m1Ne/commit/a99b0e2)).
 
+## A refinement pass
+
+Once the instrument was playable, four small changes made it easier to
+actually use and to compose with, without touching its concept, layout, or
+art direction
+([`1f23fe4`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit4-Se-m1Ne/commit/1f23fe4)):
+
+- **A quicker default tempo**, so the loop has some life to it on first load
+  instead of needing the slider touched before the instrument feels
+  responsive.
+- **An eraser**, because painting sound marks with no way to remove one
+  turns every misplaced click into a permanent addition --- reversibility
+  matters as much for sound as it does for a brush stroke.
+- **Pause**, for composition and manual performance: stopping the automatic
+  loop so a player can arrange marks without them being triggered mid-edit,
+  while one-shot ripples from clicks stay live so pausing doesn't mean
+  going silent.
+- **Subtle concentric background rings**, so distance-from-centre --- the
+  loop's own timing --- has a visible reference even before a ripple has
+  swept past, without the rings themselves looking like a technical
+  overlay.
+
+Switching the ripple's radius from an absolute-elapsed-time calculation to
+per-frame delta-time accumulation was the one internal change needed to
+support two of these cleanly: a live tempo change no longer has to
+retroactively correct for time already elapsed at the old speed, and pausing
+is just skipping that frame's growth for the loop ripple only --- both come
+for free instead of needing separate special-casing.
+
 ## Before you ship
 
 `pnpm check:evidence` verifies your citations resolve to real commits, that
