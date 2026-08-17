@@ -104,6 +104,44 @@ retroactively correct for time already elapsed at the old speed, and pausing
 is just skipping that frame's growth for the loop ripple only --- both come
 for free instead of needing separate special-casing.
 
+## A second refinement pass
+
+Two more changes, again without touching the instrument's concept, layout, or
+art direction:
+
+- **Clear Canvas, with a confirmation step.** Individual erasing becomes
+  inefficient once a composition contains many sound marks --- clearing a
+  crowded canvas one mark at a time isn't a real workflow. A confirmation
+  step was added because clearing is destructive and should not happen
+  accidentally: the button first arms into a compact "Clear all? /
+  Confirm / Cancel" row rather than clearing on the first click, reverts on
+  Cancel, on a click anywhere outside the control, or automatically after
+  five seconds of inactivity, and leaves tempo, pause state, and the active
+  brush untouched.
+- **More visible concentric guides.** The previous six rings at a flat, near-
+  invisible opacity were too subtle to actually communicate radial
+  distance --- players couldn't use them to judge timing before a ripple
+  swept past. Increasing the count to ten and graduating the opacity from
+  centre to edge makes them quietly noticeable without turning them into a
+  technical overlay; they stay well below the brightness of any mark or
+  ripple, so the background --- guides --- marks --- ripples hierarchy holds.
+
+Verifying the Clear Canvas confirmation surfaced a real bug, not just a
+missing feature: the confirm row and its trigger button used `hidden` for
+visibility, but `.clear-confirm { display: flex }` had the same specificity
+as the browser's own `[hidden] { display: none }` rule and won on source
+order, so the confirm row rendered on every page load regardless of the
+attribute. A parallel bug turned up in the existing erase-flash animation
+while re-testing the eraser: its fade fraction wasn't clamped, and a rAF
+timestamp landing a fraction of a millisecond behind the `performance.now()`
+deadline that scheduled the flash was enough to push a circle's radius
+negative, which throws inside `CanvasRenderingContext2D.arc` --- and because
+that throw happens before the loop's own `requestAnimationFrame` call, it
+would have silently frozen the entire instrument on an unlucky frame. Both
+were caught by console-error monitoring during Playwright verification
+rather than by any visual check, which is the reason that verification step
+stayed in the process even for a change that looked purely cosmetic.
+
 ## Before you ship
 
 `pnpm check:evidence` verifies your citations resolve to real commits, that
