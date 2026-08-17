@@ -2,22 +2,70 @@
 <html lang="en-AU">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>COMP4020 prototype</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Sound Canvas</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <header>
+    <header class="sr-only">
       <nav aria-label="Primary">
         <a href="./">Home</a>
       </nav>
+      <h1>Sound Canvas</h1>
+      <p data-testid="intro">
+        An instrument you paint. A ripple loops out from the centre, and every tap sends out
+        another — each one plays whatever sound marks it touches.
+      </p>
     </header>
     <main>
-      <h1>COMP4020 prototype</h1>
-      <p data-testid="intro">
-        Replace this with your prototype. This week's brief is on the course website;
-        <code>spec/README.md</code> explains how the checks in this repo relate to it.
-      </p>
+      <canvas
+        id="sound-canvas"
+        aria-label="Sound canvas. Tap or click anywhere to send out a ripple of sound."
+      ></canvas>
+
+      <div class="tempo" role="group" aria-label="Tempo">
+        <label for="tempo-slider" class="sr-only">Tempo</label>
+        <input id="tempo-slider" type="range" min="0" max="100" value="45" />
+      </div>
+
+      <div class="palette" role="group" aria-label="Sound brushes">
+        <button
+          type="button"
+          class="brush-btn brush-glow"
+          data-brush="glow"
+          aria-pressed="false"
+          aria-label="Glow brush: soft melodic sound"
+        >
+          <span class="brush-icon" aria-hidden="true"></span>
+        </button>
+        <button
+          type="button"
+          class="brush-btn brush-spark"
+          data-brush="spark"
+          aria-pressed="false"
+          aria-label="Spark brush: bright bell sound"
+        >
+          <span class="brush-icon" aria-hidden="true"></span>
+        </button>
+        <button
+          type="button"
+          class="brush-btn brush-ink"
+          data-brush="ink"
+          aria-pressed="false"
+          aria-label="Ink brush: bass sound"
+        >
+          <span class="brush-icon" aria-hidden="true"></span>
+        </button>
+        <button
+          type="button"
+          class="brush-btn brush-grain"
+          data-brush="grain"
+          aria-pressed="false"
+          aria-label="Grain brush: percussion sound"
+        >
+          <span class="brush-icon" aria-hidden="true"></span>
+        </button>
+      </div>
     </main>
     <script type="module" src="./main.ts"></script>
   </body>
